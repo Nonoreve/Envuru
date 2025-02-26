@@ -1,6 +1,6 @@
 use crate::engine::Engine;
 use ash::khr::{surface, swapchain};
-use ash::{vk, Instance};
+use ash::{Instance, vk};
 use winit::dpi::PhysicalSize;
 
 pub struct Swapchain {
@@ -8,7 +8,7 @@ pub struct Swapchain {
     pub swapchain: vk::SwapchainKHR,
     pub present_images: Vec<vk::Image>,
     pub present_image_views: Vec<vk::ImageView>,
-    pub(crate) surface_resolution: vk::Extent2D
+    pub(crate) surface_resolution: vk::Extent2D,
 }
 
 impl Swapchain {
@@ -99,14 +99,14 @@ impl Swapchain {
                 swapchain,
                 present_images,
                 present_image_views,
-                surface_resolution
+                surface_resolution,
             }
         }
     }
 
     pub fn next_image(&self, engine: &Engine, current_frame: usize) -> u32 {
         unsafe {
-            let (present_index, _) = self
+            let (present_index, suboptimal) = self
                 .swapchain_loader
                 .acquire_next_image(
                     self.swapchain,

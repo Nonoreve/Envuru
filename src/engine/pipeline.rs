@@ -69,11 +69,13 @@ impl Pipeline {
                 .device
                 .create_render_pass(&renderpass_create_info, None)
                 .unwrap();
-            let framebuffers: Vec<vk::Framebuffer> = engine.swapchain
+            let framebuffers: Vec<vk::Framebuffer> = engine
+                .swapchain
                 .present_image_views
                 .iter()
                 .map(|&present_image_view| {
-                    let framebuffer_attachments = [present_image_view, engine.depth_image_view];
+                    let framebuffer_attachments =
+                        [present_image_view, engine.depth_image.image_view];
                     let frame_buffer_create_info = vk::FramebufferCreateInfo::default()
                         .render_pass(renderpass)
                         .attachments(&framebuffer_attachments)
@@ -228,18 +230,51 @@ impl Pipeline {
             // let graphic_pipeline = graphics_pipelines[0]; // TODO choose
             Pipeline {
                 renderpass,
-                framebuffers: ManuallyDrop::new(framebuffers.clone()),
+                framebuffers: ManuallyDrop::new(framebuffers),
                 graphics_pipelines: ManuallyDrop::new(graphics_pipelines),
                 viewports,
                 scissors,
                 vertex_shader,
                 fragment_shader,
                 pipeline_layout,
-                frames: 0
+                frames: 0,
             }
         }
     }
 
+    pub fn new_framebuffers(&mut self, engine: &Engine) {
+        unsafe {
+            let framebuffers: Vec<vk::Framebuffer> = engine
+                .swapchain
+                .present_image_views
+                .iter()
+                .map(|&present_image_view| {
+                    let framebuffer_attachments =
+                        [present_image_view, engine.depth_image.image_view];
+                    let frame_buffer_create_info = vk::FramebufferCreateInfo::default()
+                        .render_pass(self.renderpass)
+                        .attachments(&framebuffer_attachments)
+                        .width(engine.swapchain.surface_resolution.width)
+                        .height(engine.swapchain.surface_resolution.height)
+                        .layers(1);
+                    engine
+                        .device
+                        .create_framebuffer(&frame_buffer_create_info, None)
+                        .unwrap()
+                })
+                .collect();
+            self.framebuffers = ManuallyDrop::new(framebuffers)
+        }
+    }
+
+    pub fn delete_framebuffers(&mut self, engine: &Engine) {
+        unsafe {
+            let framebuffers = ManuallyDrop::take(&mut self.framebuffers);
+            for framebuffer in framebuffers {
+                engine.device.destroy_framebuffer(framebuffer, None);
+            }
+        }
+    }
     pub fn delete(&mut self, engine: &Engine) {
         unsafe {
             engine.device.device_wait_idle().unwrap();

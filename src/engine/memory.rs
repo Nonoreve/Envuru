@@ -5,8 +5,9 @@ use ash::vk;
 use image::RgbaImage;
 
 use crate::engine;
-use crate::engine::Engine;
+use crate::engine::swapchain::Swapchain;
 use crate::engine::utils::{Vector3, Vertex};
+use crate::engine::{DIRECT_MAPPING, Engine};
 
 #[allow(dead_code)]
 pub enum DataOrganization {
@@ -40,7 +41,7 @@ impl<T: ?Sized> GraphicsBuffer<T> {
         unsafe {
             let vk_buffer = engine.device.create_buffer(&create_info, None).unwrap();
             let memory_requirements = engine.device.get_buffer_memory_requirements(vk_buffer);
-            let memory_index = engine::find_memorytype_index(
+            let memory_index = Engine::find_memorytype_index(
                 &memory_requirements,
                 &engine.device_memory_properties,
                 flags,
@@ -366,7 +367,7 @@ impl Texture {
         unsafe {
             let vk_image = engine.device.create_image(&create_info, None).unwrap();
             let memory_requirements = engine.device.get_image_memory_requirements(vk_image);
-            let memory_index = engine::find_memorytype_index(
+            let memory_index = Engine::find_memorytype_index(
                 &memory_requirements,
                 &engine.device_memory_properties,
                 vk::MemoryPropertyFlags::DEVICE_LOCAL,
@@ -483,6 +484,119 @@ impl Texture {
 
     pub fn delete(&self, engine: &Engine) {
         self.image_buffer.delete(engine);
+        unsafe {
+            engine.device.free_memory(self.memory, None);
+            engine.device.destroy_image_view(self.image_view, None);
+            engine.device.destroy_image(self.image, None);
+        }
+    }
+}
+
+pub struct DepthImage {
+    pub image_view: vk::ImageView,
+    pub memory: vk::DeviceMemory,
+    pub image: vk::Image,
+}
+
+impl DepthImage {
+    pub fn new(
+        swapchain: &Swapchain,
+        device: &ash::Device,
+        device_memory_properties: &vk::PhysicalDeviceMemoryProperties,
+        setup_command_buffer: vk::CommandBuffer,
+        setup_commands_reuse_fence: vk::Fence,
+        present_queue: vk::Queue,
+    ) -> Self {
+        let depth_image_create_info = vk::ImageCreateInfo {
+            flags: Default::default(), // TODO check for optis
+            image_type: vk::ImageType::TYPE_2D,
+            format: vk::Format::D16_UNORM,
+            extent: swapchain.surface_resolution.into(),
+            mip_levels: 1,
+            array_layers: 1,
+            samples: vk::SampleCountFlags::TYPE_1,
+            tiling: vk::ImageTiling::OPTIMAL,
+            usage: vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+            sharing_mode: vk::SharingMode::EXCLUSIVE,
+            ..Default::default()
+        };
+        unsafe {
+            let vk_image = device.create_image(&depth_image_create_info, None).unwrap();
+            let image_memory_requirements = device.get_image_memory_requirements(vk_image);
+            let image_memory_index = Engine::find_memorytype_index(
+                &image_memory_requirements,
+                device_memory_properties,
+                vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            )
+            .expect("Unable to find suitable memory index for depth image.");
+            let allocate_info = vk::MemoryAllocateInfo {
+                allocation_size: image_memory_requirements.size,
+                memory_type_index: image_memory_index,
+                ..Default::default()
+            };
+            let device_memory = device.allocate_memory(&allocate_info, None).unwrap();
+            device
+                .bind_image_memory(vk_image, device_memory, 0)
+                .unwrap();
+            let subresource_range = vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::DEPTH,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: 1,
+            };
+
+            engine::record_submit_commandbuffer(
+                device,
+                setup_command_buffer,
+                setup_commands_reuse_fence,
+                present_queue,
+                &[],
+                &[],
+                &[],
+                |device, setup_command_buffer| {
+                    let layout_transition_barriers = vk::ImageMemoryBarrier {
+                        src_access_mask: Default::default(),
+                        dst_access_mask: vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ
+                            | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
+                        old_layout: vk::ImageLayout::UNDEFINED,
+                        new_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                        src_queue_family_index: 0, // TODO queue_family_index ?
+                        dst_queue_family_index: 0,
+                        image: vk_image,
+                        subresource_range,
+                        ..Default::default()
+                    };
+                    device.cmd_pipeline_barrier(
+                        setup_command_buffer,
+                        vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                        vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
+                        vk::DependencyFlags::empty(),
+                        &[],
+                        &[],
+                        &[layout_transition_barriers],
+                    );
+                },
+            );
+            let create_info = vk::ImageViewCreateInfo {
+                flags: Default::default(), // TODO see first ImageViewCreateInfo and apply to other ones if necessary
+                image: vk_image,
+                view_type: vk::ImageViewType::TYPE_2D,
+                format: depth_image_create_info.format,
+                components: DIRECT_MAPPING,
+                subresource_range,
+                ..Default::default()
+            };
+            let image_view = device.create_image_view(&create_info, None).unwrap();
+            Self {
+                image_view,
+                memory: device_memory,
+                image: vk_image,
+            }
+        }
+    }
+
+    pub fn delete(&self, engine: &Engine) {
         unsafe {
             engine.device.free_memory(self.memory, None);
             engine.device.destroy_image_view(self.image_view, None);

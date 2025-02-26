@@ -96,9 +96,10 @@ pub struct FragmentShader {
 impl FragmentShader {
     pub fn new(engine: &Engine, spv_data: &[u8], color_buffer_data: Box<Vector3>) -> Self {
         let uniform_color_buffer = UniformBuffer::new(engine, color_buffer_data);
-        let image = image::load_from_memory(include_bytes!("../../resources/textures/potoo_asks.jpg"))
-            .unwrap()
-            .to_rgba8();
+        let image =
+            image::load_from_memory(include_bytes!("../../resources/textures/potoo_asks.jpg"))
+                .unwrap()
+                .to_rgba8();
         let texture = Texture::new(engine, image);
         let sampler_info = vk::SamplerCreateInfo {
             mag_filter: vk::Filter::LINEAR,
