@@ -6,7 +6,7 @@ use image::RgbaImage;
 
 use crate::engine::{DIRECT_MAPPING, Engine};
 use crate::engine::swapchain::Swapchain;
-use crate::engine::utils::{Vector3, Vertex};
+use crate::engine::utils::{ Vertex};
 
 #[allow(dead_code)]
 pub enum DataOrganization {
@@ -292,12 +292,12 @@ impl ImageBuffer {
 }
 
 pub struct UniformBuffer {
-    graphics_buffer: GraphicsBuffer<Vector3>,
+    graphics_buffer: GraphicsBuffer<cgmath::Vector3<f32>>,
     pub descriptor: vk::DescriptorBufferInfo,
 }
 
 impl UniformBuffer {
-    pub fn new(engine: &Engine, uniform_color_buffer_data: Box<Vector3>) -> Self {
+    pub fn new(engine: &Engine, uniform_color_buffer_data: Box<cgmath::Vector3<f32>>) -> Self {
         let create_info = vk::BufferCreateInfo {
             size: size_of_val(&*uniform_color_buffer_data) as u64,
             usage: vk::BufferUsageFlags::UNIFORM_BUFFER,
@@ -305,11 +305,11 @@ impl UniformBuffer {
             ..Default::default()
         };
         let (data_ptr, memory_requirements, device_memory, vk_buffer) =
-            GraphicsBuffer::<Vector3>::prepare(engine, create_info, false);
+            GraphicsBuffer::<cgmath::Vector3<f32>>::prepare(engine, create_info, false);
         unsafe {
             let mut alignment = Align::new(
                 data_ptr.unwrap(),
-                align_of::<Vector3>() as u64,
+                align_of::<cgmath::Vector3<f32>>() as u64,
                 memory_requirements.size,
             );
             alignment.copy_from_slice(&[*uniform_color_buffer_data]);

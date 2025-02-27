@@ -8,6 +8,4 @@ image = "0.25"
 winit = { version = "0.30.9", features = ["rwh_06"] }
 ash = { version = "0.38.0", default-features = false, features = ["linked", "debug", "std"] }
 ash-window = { version = "0.13.0" }
-#https://lib.rs/crates/cgmath
-#https://lib.rs/crates/gfx-maths
-#https://docs.rs/del-geo-core/latest/del_geo_core/
+cgmath = "0.18.0"

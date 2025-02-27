@@ -6,7 +6,7 @@ use ash::vk;
 
 use crate::engine::Engine;
 use crate::engine::memory::{DataOrganization, IndexBuffer, Texture, UniformBuffer, VertexBuffer};
-use crate::engine::utils::{Vector3, Vertex};
+use crate::engine::utils::{ Vertex};
 
 #[macro_export]
 macro_rules! offset_of {
@@ -93,7 +93,7 @@ pub struct FragmentShader {
 }
 
 impl FragmentShader {
-    pub fn new(engine: &Engine, spv_data: &[u8], color_buffer_data: Box<Vector3>) -> Self {
+    pub fn new(engine: &Engine, spv_data: &[u8], color_buffer_data: Box<cgmath::Vector3<f32>>) -> Self {
         let uniform_color_buffer = UniformBuffer::new(engine, color_buffer_data);
         let image =
             image::load_from_memory(include_bytes!("../../resources/textures/potoo_asks.jpg"))

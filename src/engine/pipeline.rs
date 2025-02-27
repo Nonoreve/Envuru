@@ -6,7 +6,7 @@ use ash::vk::RenderPass;
 
 use crate::engine::Engine;
 use crate::engine::shader::{FragmentShader, VertexShader};
-use crate::engine::utils::{Vector3, Vertex};
+use crate::engine::utils::{ Vertex};
 
 pub(crate) struct Pipeline {
     pub renderpass: RenderPass,
@@ -88,11 +88,10 @@ impl Pipeline {
                         .unwrap()
                 })
                 .collect();
-            let color_buffer_data = Vector3 {
+            let color_buffer_data = cgmath::Vector3 {
                 x: 1.0,
                 y: 1.0,
                 z: 1.0,
-                _pad: 0.0,
             };
             let fragment_shader = FragmentShader::new(
                 &engine,
