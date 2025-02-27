@@ -8,7 +8,6 @@ use crate::engine::Engine;
 use crate::engine::memory::{DataOrganization, IndexBuffer, Texture, UniformBuffer, VertexBuffer};
 use crate::engine::utils::{Vector3, Vertex};
 
-// Simple offset_of macro akin to C++ offsetof
 #[macro_export]
 macro_rules! offset_of {
     ($base:path, $field:ident) => {{

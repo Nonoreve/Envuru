@@ -227,7 +227,6 @@ impl Pipeline {
                     None,
                 )
                 .unwrap();
-            // let graphic_pipeline = graphics_pipelines[0]; // TODO choose
             Pipeline {
                 renderpass,
                 framebuffers: ManuallyDrop::new(framebuffers),

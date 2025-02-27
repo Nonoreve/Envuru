@@ -106,7 +106,7 @@ impl Swapchain {
 
     pub fn next_image(&self, engine: &Engine, current_frame: usize) -> u32 {
         unsafe {
-            let (present_index, suboptimal) = self
+            let (present_index, _suboptimal) = self
                 .swapchain_loader
                 .acquire_next_image(
                     self.swapchain,

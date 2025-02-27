@@ -1,7 +1,6 @@
 use ash::vk;
 
-use crate::engine::{Engine, pipeline::Pipeline, record_submit_commandbuffer};
-// use crate::engine::pipeline::Pipeline;
+use crate::engine::{Engine, pipeline::Pipeline};
 
 mod engine;
 
@@ -30,7 +29,7 @@ fn draw_frame(engine: &Engine, runtime_data: &mut Pipeline) {
             .render_area(engine.swapchain.surface_resolution.into())
             .clear_values(&clear_values);
 
-        record_submit_commandbuffer(
+        Engine::record_submit_commandbuffer(
             &engine.device,
             engine.draw_command_buffers[current_frame],
             engine.draw_commands_reuse_fence[current_frame],

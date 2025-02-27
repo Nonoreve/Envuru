@@ -4,10 +4,9 @@ use ash::util::Align;
 use ash::vk;
 use image::RgbaImage;
 
-use crate::engine;
+use crate::engine::{DIRECT_MAPPING, Engine};
 use crate::engine::swapchain::Swapchain;
 use crate::engine::utils::{Vector3, Vertex};
-use crate::engine::{DIRECT_MAPPING, Engine};
 
 #[allow(dead_code)]
 pub enum DataOrganization {
@@ -115,7 +114,7 @@ impl VertexBuffer {
                 .device
                 .bind_buffer_memory(vk_buffer, device_memory, 0)
                 .unwrap();
-            engine::record_submit_commandbuffer(
+            Engine::record_submit_commandbuffer(
                 &engine.device,
                 engine.setup_command_buffer,
                 engine.setup_commands_reuse_fence,
@@ -194,7 +193,7 @@ impl IndexBuffer {
                 .device
                 .bind_buffer_memory(vk_buffer, device_memory, 0)
                 .unwrap();
-            engine::record_submit_commandbuffer(
+            Engine::record_submit_commandbuffer(
                 &engine.device,
                 engine.setup_command_buffer,
                 engine.setup_commands_reuse_fence,
@@ -384,7 +383,7 @@ impl Texture {
                 .bind_image_memory(vk_image, device_memory, 0)
                 .expect("Unable to bind depth image memory");
 
-            engine::record_submit_commandbuffer(
+            Engine::record_submit_commandbuffer(
                 &engine.device,
                 engine.setup_command_buffer,
                 engine.setup_commands_reuse_fence,
@@ -546,7 +545,7 @@ impl DepthImage {
                 layer_count: 1,
             };
 
-            engine::record_submit_commandbuffer(
+            Engine::record_submit_commandbuffer(
                 device,
                 setup_command_buffer,
                 setup_commands_reuse_fence,
