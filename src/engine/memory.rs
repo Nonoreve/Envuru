@@ -4,9 +4,9 @@ use ash::util::Align;
 use ash::vk;
 use image::RgbaImage;
 
-use crate::engine::{DIRECT_MAPPING, Engine};
+use crate::engine::shader::Vertex;
 use crate::engine::swapchain::Swapchain;
-use crate::engine::utils::{ Vertex};
+use crate::engine::{DIRECT_MAPPING, Engine};
 
 #[allow(dead_code)]
 pub enum DataOrganization {
@@ -92,7 +92,7 @@ impl VertexBuffer {
         unsafe {
             let mut alignment = Align::new(
                 data_ptr.unwrap(),
-                align_of::<Vertex>() as u64,
+                align_of::<f32>() as u64,
                 memory_requirements.size,
             );
             alignment.copy_from_slice(&*vertices);
@@ -255,7 +255,7 @@ impl ImageBuffer {
             ..Default::default()
         };
         let (data_ptr, memory_requirements, device_memory, vk_buffer) =
-            GraphicsBuffer::<u8>::prepare(engine, create_info, false);
+            GraphicsBuffer::<u8>::prepare(engine, create_info, false); // TODO staging buffer
         unsafe {
             let mut alignment = Align::new(
                 data_ptr.unwrap(),
@@ -271,7 +271,7 @@ impl ImageBuffer {
         }
         Self {
             0: GraphicsBuffer {
-                data: Box::new(image),
+                data: Box::new(image), // TODO only store dimensions
                 memory: device_memory,
                 buffer: vk_buffer,
             },
@@ -292,50 +292,49 @@ impl ImageBuffer {
 }
 
 pub struct UniformBuffer {
-    graphics_buffer: GraphicsBuffer<cgmath::Vector3<f32>>,
+    memory: vk::DeviceMemory,
+    buffer: vk::Buffer,
     pub descriptor: vk::DescriptorBufferInfo,
+    pub data_ptr: Option<*mut c_void>,
+    pub memory_requirements: vk::MemoryRequirements,
 }
 
 impl UniformBuffer {
-    pub fn new(engine: &Engine, uniform_color_buffer_data: Box<cgmath::Vector3<f32>>) -> Self {
+    pub fn new<T>(engine: &Engine) -> Self {
+        let size = size_of::<T>() as u64;
         let create_info = vk::BufferCreateInfo {
-            size: size_of_val(&*uniform_color_buffer_data) as u64,
+            size,
             usage: vk::BufferUsageFlags::UNIFORM_BUFFER,
             sharing_mode: vk::SharingMode::EXCLUSIVE,
             ..Default::default()
         };
         let (data_ptr, memory_requirements, device_memory, vk_buffer) =
-            GraphicsBuffer::<cgmath::Vector3<f32>>::prepare(engine, create_info, false);
+            GraphicsBuffer::<T>::prepare(engine, create_info, false);
         unsafe {
-            let mut alignment = Align::new(
-                data_ptr.unwrap(),
-                align_of::<cgmath::Vector3<f32>>() as u64,
-                memory_requirements.size,
-            );
-            alignment.copy_from_slice(&[*uniform_color_buffer_data]);
-            engine.device.unmap_memory(device_memory);
             engine
                 .device
                 .bind_buffer_memory(vk_buffer, device_memory, 0)
                 .unwrap();
-            let uniform_color_buffer_descriptor = vk::DescriptorBufferInfo {
+            let descriptor_buffer = vk::DescriptorBufferInfo {
                 buffer: vk_buffer,
                 offset: 0,
-                range: size_of_val(&uniform_color_buffer_data) as u64,
+                range: size,
             };
             Self {
-                graphics_buffer: GraphicsBuffer {
-                    data: uniform_color_buffer_data,
-                    memory: device_memory,
-                    buffer: vk_buffer,
-                },
-                descriptor: uniform_color_buffer_descriptor,
+                data_ptr,
+                memory_requirements,
+                memory: device_memory,
+                buffer: vk_buffer,
+                descriptor: descriptor_buffer,
             }
         }
     }
 
     pub fn delete(&self, engine: &Engine) {
-        self.graphics_buffer.delete(engine);
+        unsafe {
+            engine.device.free_memory(self.memory, None);
+            engine.device.destroy_buffer(self.buffer, None);
+        }
     }
 }
 
@@ -406,7 +405,7 @@ impl Texture {
                     };
                     device.cmd_pipeline_barrier(
                         texture_command_buffer,
-                        vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                        vk::PipelineStageFlags::TOP_OF_PIPE,
                         vk::PipelineStageFlags::TRANSFER,
                         vk::DependencyFlags::empty(),
                         &[],

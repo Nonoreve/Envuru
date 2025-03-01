@@ -1,6 +1,8 @@
-use ash::vk;
-
+use crate::engine::shader::MvpUbo;
 use crate::engine::{Engine, pipeline::Pipeline};
+use ash::util::Align;
+use ash::vk;
+use cgmath::One;
 
 mod engine;
 
@@ -22,6 +24,49 @@ fn draw_frame(engine: &Engine, runtime_data: &mut Pipeline) {
                 },
             },
         ];
+        // let model = cgmath::Decomposed{
+        //     scale: cgmath::vec3(1.0, 1.0, 1.0),
+        //     rot: cgmath::Rotation::one(),
+        //     disp: cgmath::vec3(1.0, 1.0, 1.0),
+        // };
+        let model = cgmath::Matrix4::one();
+        let view = cgmath::Matrix4::look_at_rh(
+            cgmath::point3(1.0, 1.0, 1.0),
+            cgmath::point3(0.0, 0.0, 0.0),
+            cgmath::vec3(0.0, 0.0, 1.0),
+        );
+        let aspect_ratio = engine.swapchain.surface_resolution.width as f32
+            / engine.swapchain.surface_resolution.height as f32;
+        let projection = cgmath::PerspectiveFov {
+            fovy: cgmath::Rad::from(cgmath::Deg(45.0)),
+            aspect: aspect_ratio,
+            near: 0.1,
+            far: 10.0,
+        };
+        let mvp = [engine::shader::MvpUbo {
+            model,
+            view,
+            projection: cgmath::Matrix4::from(projection),
+        }];
+        let mut alignment = Align::new(
+            runtime_data.vertex_shader.uniform_mvp_buffers[current_frame]
+                .data_ptr
+                .unwrap(),
+            align_of::<f32>() as u64,
+            runtime_data.vertex_shader.uniform_mvp_buffers[current_frame]
+                .memory_requirements
+                .size,
+        );
+        alignment.copy_from_slice(&mvp);
+        let viewports = [vk::Viewport {
+            x: 0.0,
+            y: 0.0,
+            width: engine.swapchain.surface_resolution.width as f32,
+            height: engine.swapchain.surface_resolution.height as f32,
+            min_depth: 0.0,
+            max_depth: 1.0,
+        }];
+        let scissors = [engine.swapchain.surface_resolution.into()];
 
         let render_pass_begin_info = vk::RenderPassBeginInfo::default()
             .render_pass(runtime_data.renderpass)
@@ -43,21 +88,13 @@ fn draw_frame(engine: &Engine, runtime_data: &mut Pipeline) {
                     &render_pass_begin_info,
                     vk::SubpassContents::INLINE,
                 );
-                device.cmd_bind_descriptor_sets(
-                    draw_command_buffer,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    runtime_data.pipeline_layout,
-                    0,
-                    &runtime_data.fragment_shader.descriptor_sets[..],
-                    &[],
-                );
                 device.cmd_bind_pipeline(
                     draw_command_buffer,
                     vk::PipelineBindPoint::GRAPHICS,
                     runtime_data.graphics_pipelines[0], // TODO choose instead of asert first one
                 );
-                device.cmd_set_viewport(draw_command_buffer, 0, &runtime_data.viewports);
-                device.cmd_set_scissor(draw_command_buffer, 0, &runtime_data.scissors);
+                device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
+                device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
                 runtime_data
                     .vertex_shader
                     .vertex_buffer
@@ -66,6 +103,14 @@ fn draw_frame(engine: &Engine, runtime_data: &mut Pipeline) {
                     .vertex_shader
                     .index_buffer
                     .bind(engine, current_frame);
+                device.cmd_bind_descriptor_sets(
+                    draw_command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    runtime_data.pipeline_layout,
+                    0,
+                    &[runtime_data.descriptor_sets[current_frame]],
+                    &[],
+                );
                 device.cmd_draw_indexed(
                     draw_command_buffer,
                     runtime_data.vertex_shader.index_buffer.index_count(),

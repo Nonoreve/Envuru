@@ -1,13 +1,11 @@
 use std::io::Cursor;
 use std::mem;
 
+use crate::engine::memory::{DataOrganization, IndexBuffer, Texture, UniformBuffer, VertexBuffer};
+use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT};
 use ash::util::read_spv;
 use ash::vk;
-
-use crate::engine::Engine;
-use crate::engine::memory::{DataOrganization, IndexBuffer, Texture, UniformBuffer, VertexBuffer};
-use crate::engine::utils::{ Vertex};
-
+use ash::vk::{DescriptorPool, DescriptorSet, DescriptorSetLayout};
 #[macro_export]
 macro_rules! offset_of {
     ($base:path, $field:ident) => {{
@@ -19,12 +17,20 @@ macro_rules! offset_of {
     }};
 }
 
+#[derive(Copy, Clone)]
+pub struct MvpUbo {
+    pub(crate) model: cgmath::Matrix4<f32>,
+    pub(crate) view: cgmath::Matrix4<f32>,
+    pub(crate) projection: cgmath::Matrix4<f32>,
+}
+
 pub struct VertexShader {
     pub module: vk::ShaderModule,
     pub input_binding_descriptions: Vec<vk::VertexInputBindingDescription>,
     pub input_attribute_descriptions: Vec<vk::VertexInputAttributeDescription>,
     pub vertex_buffer: VertexBuffer,
     pub index_buffer: IndexBuffer,
+    pub(crate) uniform_mvp_buffers: Vec<UniformBuffer>,
 }
 
 impl VertexShader {
@@ -33,6 +39,7 @@ impl VertexShader {
         spv_data: &[u8],
         vertices: Box<[Vertex]>,
         indices: Box<[u32]>,
+        descriptor_sets: &Vec<DescriptorSet>,
     ) -> Self {
         let mut spv_data = Cursor::new(spv_data);
         let spv_data = read_spv(&mut spv_data).unwrap();
@@ -58,7 +65,23 @@ impl VertexShader {
         ];
         let vertex_buffer = VertexBuffer::new(engine, vertices, DataOrganization::ObjectMajor);
         let index_buffer = IndexBuffer::new(engine, indices);
+        let uniform_mvp_buffers: Vec<UniformBuffer> = (0..MAX_FRAMES_IN_FLIGHT)
+            .map(|_| UniformBuffer::new::<MvpUbo>(engine))
+            .collect();
+
         unsafe {
+            for i in 0..MAX_FRAMES_IN_FLIGHT {
+                let write_desc_sets = [vk::WriteDescriptorSet {
+                    dst_set: descriptor_sets[i as usize],
+                    dst_binding: 0,
+                    dst_array_element: 0,
+                    descriptor_count: 1,
+                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+                    p_buffer_info: &uniform_mvp_buffers[i as usize].descriptor,
+                    ..Default::default()
+                }];
+                engine.device.update_descriptor_sets(&write_desc_sets, &[]);
+            }
             let module = engine
                 .device
                 .create_shader_module(&vertex_shader_info, None)
@@ -69,6 +92,7 @@ impl VertexShader {
                 input_attribute_descriptions,
                 index_buffer,
                 vertex_buffer,
+                uniform_mvp_buffers,
             }
         }
     }
@@ -76,6 +100,9 @@ impl VertexShader {
     pub fn delete(&mut self, engine: &Engine) {
         unsafe {
             engine.device.destroy_shader_module(self.module, None);
+            for uniform_mvp_buffer in self.uniform_mvp_buffers.iter() {
+                uniform_mvp_buffer.delete(engine);
+            }
         }
         self.index_buffer.delete(engine);
         self.vertex_buffer.delete(engine);
@@ -84,105 +111,60 @@ impl VertexShader {
 
 pub struct FragmentShader {
     pub module: vk::ShaderModule,
-    pub desc_set_layouts: [vk::DescriptorSetLayout; 1],
-    pub uniform_color_buffer: UniformBuffer,
-    pub descriptor_pool: vk::DescriptorPool,
     pub sampler: vk::Sampler,
-    pub descriptor_sets: Vec<vk::DescriptorSet>,
     pub texture: Texture,
 }
 
 impl FragmentShader {
-    pub fn new(engine: &Engine, spv_data: &[u8], color_buffer_data: Box<cgmath::Vector3<f32>>) -> Self {
-        let uniform_color_buffer = UniformBuffer::new(engine, color_buffer_data);
-        let image =
-            image::load_from_memory(include_bytes!("../../resources/textures/potoo_asks.jpg"))
-                .unwrap()
-                .to_rgba8();
+    pub fn new(engine: &Engine, spv_data: &[u8], descriptor_sets: &Vec<DescriptorSet>) -> Self {
+        let image = image::load_from_memory(include_bytes!("../../resources/textures/charlie.jpg"))
+            .unwrap()
+            .to_rgba8();
         let texture = Texture::new(engine, image);
         let sampler_info = vk::SamplerCreateInfo {
+            flags: Default::default(),
             mag_filter: vk::Filter::LINEAR,
             min_filter: vk::Filter::LINEAR,
             mipmap_mode: vk::SamplerMipmapMode::LINEAR,
             address_mode_u: vk::SamplerAddressMode::MIRRORED_REPEAT,
             address_mode_v: vk::SamplerAddressMode::MIRRORED_REPEAT,
             address_mode_w: vk::SamplerAddressMode::MIRRORED_REPEAT,
+            mip_lod_bias: 0.0,
+            anisotropy_enable: vk::TRUE,
             max_anisotropy: 1.0,
             border_color: vk::BorderColor::FLOAT_OPAQUE_WHITE,
+            unnormalized_coordinates: 0,
             compare_op: vk::CompareOp::NEVER,
+            min_lod: 0.0,
+            compare_enable: 0,
+            max_lod: 0.0,
             ..Default::default()
         };
 
         unsafe {
             let sampler = engine.device.create_sampler(&sampler_info, None).unwrap();
-            let descriptor_sizes = [
-                vk::DescriptorPoolSize {
-                    ty: vk::DescriptorType::UNIFORM_BUFFER,
-                    descriptor_count: 1,
-                },
-                vk::DescriptorPoolSize {
-                    ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    descriptor_count: 1,
-                },
-            ];
-            let descriptor_pool_info = vk::DescriptorPoolCreateInfo::default()
-                .pool_sizes(&descriptor_sizes)
-                .max_sets(1);
-            let descriptor_pool = engine
-                .device
-                .create_descriptor_pool(&descriptor_pool_info, None)
-                .unwrap();
-            let desc_layout_bindings = [
-                vk::DescriptorSetLayoutBinding {
-                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
-                    descriptor_count: 1,
-                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
-                    ..Default::default()
-                },
-                vk::DescriptorSetLayoutBinding {
-                    binding: 1,
-                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    descriptor_count: 1,
-                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
-                    ..Default::default()
-                },
-            ];
-            let descriptor_info =
-                vk::DescriptorSetLayoutCreateInfo::default().bindings(&desc_layout_bindings);
-            let desc_set_layouts = [engine
-                .device
-                .create_descriptor_set_layout(&descriptor_info, None)
-                .unwrap()];
-            let desc_alloc_info = vk::DescriptorSetAllocateInfo::default()
-                .descriptor_pool(descriptor_pool)
-                .set_layouts(&desc_set_layouts);
-            let descriptor_sets = engine
-                .device
-                .allocate_descriptor_sets(&desc_alloc_info)
-                .unwrap();
-            let tex_descriptor = vk::DescriptorImageInfo {
-                image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                image_view: texture.image_view,
-                sampler,
-            };
-            let write_desc_sets = [
-                vk::WriteDescriptorSet {
-                    dst_set: descriptor_sets[0],
-                    descriptor_count: 1,
-                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
-                    p_buffer_info: &uniform_color_buffer.descriptor,
-                    ..Default::default()
-                },
-                vk::WriteDescriptorSet {
-                    dst_set: descriptor_sets[0],
-                    dst_binding: 1,
-                    descriptor_count: 1,
-                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    p_image_info: &tex_descriptor,
-                    ..Default::default()
-                },
-            ];
-            engine.device.update_descriptor_sets(&write_desc_sets, &[]);
+            let tex_descriptors: Vec<vk::DescriptorImageInfo> = (0..MAX_FRAMES_IN_FLIGHT)
+                .map(|_| vk::DescriptorImageInfo {
+                    image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                    image_view: texture.image_view,
+                    sampler,
+                })
+                .collect();
+
+            for i in 0..MAX_FRAMES_IN_FLIGHT {
+                let write_desc_sets = [
+                    vk::WriteDescriptorSet {
+                        dst_set: descriptor_sets[i as usize],
+                        dst_binding: 1,
+                        dst_array_element: 0,
+                        descriptor_count: 1,
+                        descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                        p_image_info: &tex_descriptors[i as usize],
+                        ..Default::default()
+                    },
+                ];
+                engine.device.update_descriptor_sets(&write_desc_sets, &[]);
+            }
             let mut frag_spv_file = Cursor::new(spv_data);
             let frag_code =
                 read_spv(&mut frag_spv_file).expect("Failed to read fragment shader spv file");
@@ -192,11 +174,7 @@ impl FragmentShader {
                 .create_shader_module(&frag_shader_info, None)
                 .expect("Fragment shader module error");
             Self {
-                desc_set_layouts,
-                descriptor_sets,
                 module: fragment_shader_module,
-                uniform_color_buffer,
-                descriptor_pool,
                 sampler,
                 texture,
             }
@@ -206,15 +184,12 @@ impl FragmentShader {
     pub unsafe fn delete(&mut self, engine: &Engine) {
         engine.device.destroy_shader_module(self.module, None);
         self.texture.delete(engine);
-        self.uniform_color_buffer.delete(engine);
-        for &descriptor_set_layout in self.desc_set_layouts.iter() {
-            engine
-                .device
-                .destroy_descriptor_set_layout(descriptor_set_layout, None);
-        }
-        engine
-            .device
-            .destroy_descriptor_pool(self.descriptor_pool, None);
         engine.device.destroy_sampler(self.sampler, None);
     }
+}
+
+#[derive(Clone, Debug, Copy)]
+pub struct Vertex {
+    pub pos: [f32; 4],
+    pub uv: [f32; 2],
 }

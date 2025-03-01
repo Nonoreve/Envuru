@@ -4,20 +4,20 @@ use std::mem::ManuallyDrop;
 use ash::vk;
 use ash::vk::RenderPass;
 
-use crate::engine::Engine;
-use crate::engine::shader::{FragmentShader, VertexShader};
-use crate::engine::utils::{ Vertex};
+use crate::engine::shader::{FragmentShader, Vertex, VertexShader};
+use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT};
 
 pub(crate) struct Pipeline {
     pub renderpass: RenderPass,
     pub framebuffers: ManuallyDrop<Vec<vk::Framebuffer>>,
     pub graphics_pipelines: ManuallyDrop<Vec<vk::Pipeline>>,
-    pub viewports: [vk::Viewport; 1],
-    pub scissors: [vk::Rect2D; 1],
     pub vertex_shader: VertexShader,
     pub pipeline_layout: vk::PipelineLayout,
     pub fragment_shader: FragmentShader,
     pub frames: u64,
+    descriptor_set_layout: vk::DescriptorSetLayout,
+    descriptor_pool: vk::DescriptorPool,
+    pub(crate) descriptor_sets: Vec<vk::DescriptorSet>,
 }
 
 impl Pipeline {
@@ -69,6 +69,28 @@ impl Pipeline {
                 .device
                 .create_render_pass(&renderpass_create_info, None)
                 .unwrap();
+            let desc_layout_bindings = [
+                vk::DescriptorSetLayoutBinding {
+                    binding: 0,
+                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::VERTEX,
+                    ..Default::default()
+                },
+                vk::DescriptorSetLayoutBinding {
+                    binding: 1,
+                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    descriptor_count: 1,
+                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                    ..Default::default()
+                },
+            ];
+            let descriptor_info =
+                vk::DescriptorSetLayoutCreateInfo::default().bindings(&desc_layout_bindings);
+            let descriptor_set_layout = engine
+                .device
+                .create_descriptor_set_layout(&descriptor_info, None)
+                .unwrap();
             let framebuffers: Vec<vk::Framebuffer> = engine
                 .swapchain
                 .present_image_views
@@ -88,22 +110,36 @@ impl Pipeline {
                         .unwrap()
                 })
                 .collect();
-            let color_buffer_data = cgmath::Vector3 {
-                x: 1.0,
-                y: 1.0,
-                z: 1.0,
-            };
+            let descriptor_sizes = [
+                vk::DescriptorPoolSize {
+                    ty: vk::DescriptorType::UNIFORM_BUFFER,
+                    descriptor_count: MAX_FRAMES_IN_FLIGHT,
+                },
+                vk::DescriptorPoolSize {
+                    ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    descriptor_count: MAX_FRAMES_IN_FLIGHT,
+                },
+            ];
+            let descriptor_pool_info = vk::DescriptorPoolCreateInfo::default()
+                .pool_sizes(&descriptor_sizes)
+                .max_sets(MAX_FRAMES_IN_FLIGHT);
+            let descriptor_pool = engine
+                .device
+                .create_descriptor_pool(&descriptor_pool_info, None)
+                .unwrap();
+            let desc_set_layouts = [descriptor_set_layout, descriptor_set_layout.clone()]; // TODO dynamic based on MAX_FRAMES_IN_FLIGHT
+            let desc_alloc_info = vk::DescriptorSetAllocateInfo::default()
+                .descriptor_pool(descriptor_pool)
+                .set_layouts(&desc_set_layouts);
+            let descriptor_sets = engine
+                .device
+                .allocate_descriptor_sets(&desc_alloc_info)
+                .unwrap();
             let fragment_shader = FragmentShader::new(
                 &engine,
                 include_bytes!("../../target/frag.spv"),
-                Box::new(color_buffer_data),
+                &descriptor_sets,
             );
-            let layout_create_info = vk::PipelineLayoutCreateInfo::default()
-                .set_layouts(&fragment_shader.desc_set_layouts);
-            let pipeline_layout = engine
-                .device
-                .create_pipeline_layout(&layout_create_info, None)
-                .unwrap();
             let vertices = [
                 Vertex {
                     pos: [-1.0, -1.0, 0.0, 1.0],
@@ -128,7 +164,14 @@ impl Pipeline {
                 include_bytes!("../../target/vert.spv"),
                 Box::new(vertices),
                 index_buffer_data,
+                &descriptor_sets,
             );
+            let layout_create_info =
+                vk::PipelineLayoutCreateInfo::default().set_layouts(&desc_set_layouts[..1]);
+            let pipeline_layout = engine
+                .device
+                .create_pipeline_layout(&layout_create_info, None)
+                .unwrap();
             let shader_entry_name = ffi::CStr::from_bytes_with_nul_unchecked(b"main\0");
             let shader_stage_create_infos = [
                 vk::PipelineShaderStageCreateInfo {
@@ -152,18 +195,11 @@ impl Pipeline {
                 topology: vk::PrimitiveTopology::TRIANGLE_LIST,
                 ..Default::default()
             };
-            let viewports = [vk::Viewport {
-                x: 0.0,
-                y: 0.0,
-                width: engine.swapchain.surface_resolution.width as f32,
-                height: engine.swapchain.surface_resolution.height as f32,
-                min_depth: 0.0,
-                max_depth: 1.0,
-            }];
-            let scissors = [engine.swapchain.surface_resolution.into()];
-            let viewport_state_info = vk::PipelineViewportStateCreateInfo::default()
-                .scissors(&scissors)
-                .viewports(&viewports);
+            let viewport_state_info = vk::PipelineViewportStateCreateInfo {
+                viewport_count: 1,
+                scissor_count: 1,
+                ..Default::default()
+            };
             let rasterization_info = vk::PipelineRasterizationStateCreateInfo {
                 front_face: vk::FrontFace::COUNTER_CLOCKWISE,
                 line_width: 1.0,
@@ -230,12 +266,13 @@ impl Pipeline {
                 renderpass,
                 framebuffers: ManuallyDrop::new(framebuffers),
                 graphics_pipelines: ManuallyDrop::new(graphics_pipelines),
-                viewports,
-                scissors,
                 vertex_shader,
                 fragment_shader,
                 pipeline_layout,
                 frames: 0,
+                descriptor_set_layout,
+                descriptor_pool,
+                descriptor_sets
             }
         }
     }
@@ -286,6 +323,12 @@ impl Pipeline {
             self.fragment_shader.delete(&engine);
 
             self.vertex_shader.delete(&engine);
+            engine
+                .device
+                .destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+            engine
+                .device
+                .destroy_descriptor_pool(self.descriptor_pool, None);
             let framebuffers = ManuallyDrop::take(&mut self.framebuffers);
             for framebuffer in framebuffers {
                 engine.device.destroy_framebuffer(framebuffer, None);

@@ -10,9 +10,8 @@ use winit::{application, dpi, event, event_loop, window};
 
 mod memory;
 pub(crate) mod pipeline;
-mod shader;
+pub(crate) mod shader;
 mod swapchain;
-mod utils;
 
 type DrawFrameFn = for<'a, 'b> fn(&'a Engine, &'b mut Pipeline);
 
@@ -67,10 +66,12 @@ impl application::ApplicationHandler for WindowHandler {
         }
     }
 
-    // fn about_to_wait(&mut self, _event_loop: &event_loop::ActiveEventLoop) {
-    // 	println!("abouttowait");
-    // 	(self.draw_frame)(self.engine.as_ref().unwrap(), self.pipeline.as_mut().unwrap())
-    // }
+    fn about_to_wait(&mut self, _event_loop: &event_loop::ActiveEventLoop) {
+        (self.draw_frame)(
+            self.engine.as_ref().unwrap(),
+            self.pipeline.as_mut().unwrap(),
+        )
+    }
 
     fn exiting(&mut self, _event_loop: &event_loop::ActiveEventLoop) {
         self.pipeline
@@ -141,7 +142,7 @@ unsafe extern "system" fn vulkan_debug_callback(
     };
 
     println!(
-        "{message_severity:?}: {message_type:?} [{message_id_name} ({message_id_number})] : {message}",
+        "{message_type:?} : {message}",
     );
 
     if message_severity == vk::DebugUtilsMessageSeverityFlagsEXT::ERROR {
@@ -269,6 +270,7 @@ impl Engine {
             let device_extension_names = [khr::swapchain::NAME.as_ptr()];
             let features = vk::PhysicalDeviceFeatures {
                 shader_clip_distance: 1,
+                sampler_anisotropy: vk::TRUE,
                 ..Default::default()
             };
             let priorities = [1.0];
@@ -313,7 +315,7 @@ impl Engine {
             let setup_command_buffer = command_buffers.pop().unwrap();
             let device_memory_properties = instance.get_physical_device_memory_properties(pdevice);
             let create_info = vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
-            let draw_commands_reuse_fence = (1..=MAX_FRAMES_IN_FLIGHT)
+            let draw_commands_reuse_fence = (0..MAX_FRAMES_IN_FLIGHT)
                 .map(|_| device.create_fence(&create_info, None).unwrap())
                 .collect();
             let setup_commands_reuse_fence = device.create_fence(&create_info, None).unwrap();
@@ -326,14 +328,14 @@ impl Engine {
                 present_queue,
             );
             let semaphore_create_info = vk::SemaphoreCreateInfo::default();
-            let present_complete_semaphore = (1..=MAX_FRAMES_IN_FLIGHT)
+            let present_complete_semaphore = (0..MAX_FRAMES_IN_FLIGHT)
                 .map(|_| {
                     device
                         .create_semaphore(&semaphore_create_info, None)
                         .unwrap()
                 })
                 .collect();
-            let rendering_complete_semaphore = (1..=MAX_FRAMES_IN_FLIGHT)
+            let rendering_complete_semaphore = (0..MAX_FRAMES_IN_FLIGHT)
                 .map(|_| {
                     device
                         .create_semaphore(&semaphore_create_info, None)
