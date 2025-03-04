@@ -141,9 +141,7 @@ unsafe extern "system" fn vulkan_debug_callback(
         ffi::CStr::from_ptr(callback_data.p_message).to_string_lossy()
     };
 
-    println!(
-        "{message_type:?} : {message}",
-    );
+    println!("{message_type:?} : {message}",);
 
     if message_severity == vk::DebugUtilsMessageSeverityFlagsEXT::ERROR {
         process::exit(-1)
@@ -452,15 +450,12 @@ impl Engine {
             device
                 .end_command_buffer(command_buffer)
                 .expect("End commandbuffer");
-
-            let command_buffers = vec![command_buffer];
-
+            let command_buffers = [command_buffer];
             let submit_info = vk::SubmitInfo::default()
                 .wait_semaphores(wait_semaphores)
                 .wait_dst_stage_mask(wait_mask)
                 .command_buffers(&command_buffers)
                 .signal_semaphores(signal_semaphores);
-
             device
                 .queue_submit(submit_queue, &[submit_info], command_buffer_reuse_fence)
                 .expect("queue submit failed.");

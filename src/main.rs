@@ -1,8 +1,7 @@
-use crate::engine::shader::MvpUbo;
-use crate::engine::{Engine, pipeline::Pipeline};
-use ash::util::Align;
-use ash::vk;
+use ash::{util, vk};
 use cgmath::One;
+
+use crate::engine::{Engine, pipeline::Pipeline};
 
 mod engine;
 
@@ -48,7 +47,7 @@ fn draw_frame(engine: &Engine, runtime_data: &mut Pipeline) {
             view,
             projection: cgmath::Matrix4::from(projection),
         }];
-        let mut alignment = Align::new(
+        let mut alignment = util::Align::new(
             runtime_data.vertex_shader.uniform_mvp_buffers[current_frame]
                 .data_ptr
                 .unwrap(),
@@ -113,7 +112,7 @@ fn draw_frame(engine: &Engine, runtime_data: &mut Pipeline) {
                 );
                 device.cmd_draw_indexed(
                     draw_command_buffer,
-                    runtime_data.vertex_shader.index_buffer.index_count(),
+                    runtime_data.vertex_shader.index_buffer.index_count,
                     1,
                     0,
                     0,

@@ -1,11 +1,11 @@
 use std::io::Cursor;
 use std::mem;
 
+use ash::{util, vk};
+
 use crate::engine::memory::{DataOrganization, IndexBuffer, Texture, UniformBuffer, VertexBuffer};
 use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT};
-use ash::util::read_spv;
-use ash::vk;
-use ash::vk::{DescriptorPool, DescriptorSet, DescriptorSetLayout};
+
 #[macro_export]
 macro_rules! offset_of {
     ($base:path, $field:ident) => {{
@@ -39,10 +39,10 @@ impl VertexShader {
         spv_data: &[u8],
         vertices: Box<[Vertex]>,
         indices: Box<[u32]>,
-        descriptor_sets: &Vec<DescriptorSet>,
+        descriptor_sets: &Vec<vk::DescriptorSet>,
     ) -> Self {
         let mut spv_data = Cursor::new(spv_data);
-        let spv_data = read_spv(&mut spv_data).unwrap();
+        let spv_data = util::read_spv(&mut spv_data).unwrap();
         let vertex_shader_info = vk::ShaderModuleCreateInfo::default().code(&spv_data);
         let input_binding_descriptions = vec![vk::VertexInputBindingDescription {
             binding: 0,
@@ -116,7 +116,7 @@ pub struct FragmentShader {
 }
 
 impl FragmentShader {
-    pub fn new(engine: &Engine, spv_data: &[u8], descriptor_sets: &Vec<DescriptorSet>) -> Self {
+    pub fn new(engine: &Engine, spv_data: &[u8], descriptor_sets: &Vec<vk::DescriptorSet>) -> Self {
         let image = image::load_from_memory(include_bytes!("../../resources/textures/charlie.jpg"))
             .unwrap()
             .to_rgba8();
@@ -146,28 +146,26 @@ impl FragmentShader {
             let tex_descriptors: Vec<vk::DescriptorImageInfo> = (0..MAX_FRAMES_IN_FLIGHT)
                 .map(|_| vk::DescriptorImageInfo {
                     image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                    image_view: texture.image_view,
+                    image_view: texture.get_image_view(),
                     sampler,
                 })
                 .collect();
 
             for i in 0..MAX_FRAMES_IN_FLIGHT {
-                let write_desc_sets = [
-                    vk::WriteDescriptorSet {
-                        dst_set: descriptor_sets[i as usize],
-                        dst_binding: 1,
-                        dst_array_element: 0,
-                        descriptor_count: 1,
-                        descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                        p_image_info: &tex_descriptors[i as usize],
-                        ..Default::default()
-                    },
-                ];
+                let write_desc_sets = [vk::WriteDescriptorSet {
+                    dst_set: descriptor_sets[i as usize],
+                    dst_binding: 1,
+                    dst_array_element: 0,
+                    descriptor_count: 1,
+                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    p_image_info: &tex_descriptors[i as usize],
+                    ..Default::default()
+                }];
                 engine.device.update_descriptor_sets(&write_desc_sets, &[]);
             }
             let mut frag_spv_file = Cursor::new(spv_data);
-            let frag_code =
-                read_spv(&mut frag_spv_file).expect("Failed to read fragment shader spv file");
+            let frag_code = util::read_spv(&mut frag_spv_file)
+                .expect("Failed to read fragment shader spv file");
             let frag_shader_info = vk::ShaderModuleCreateInfo::default().code(&frag_code);
             let fragment_shader_module = engine
                 .device

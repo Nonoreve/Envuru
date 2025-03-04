@@ -1,7 +1,7 @@
-use crate::engine::Engine;
 use ash::khr::{surface, swapchain};
-use ash::{Instance, vk};
-use winit::dpi::PhysicalSize;
+use ash::vk;
+use winit::dpi;
+use crate::engine::Engine;
 
 pub struct Swapchain {
     swapchain_loader: swapchain::Device,
@@ -17,10 +17,10 @@ impl Swapchain {
         surface_loader: &surface::Instance,
         pdevice: vk::PhysicalDevice,
         surface: vk::SurfaceKHR,
-        instance: &Instance,
+        instance: &ash::Instance,
         device: &ash::Device,
         surface_format: &vk::SurfaceFormatKHR,
-        dimensions: &PhysicalSize<u32>,
+        dimensions: &dpi::PhysicalSize<u32>,
     ) -> Self {
         let surface_resolution = match surface_capabilities.current_extent.width {
             u32::MAX => vk::Extent2D {

@@ -1,8 +1,6 @@
 use std::ffi::c_void;
 
-use ash::util::Align;
-use ash::vk;
-use image::RgbaImage;
+use ash::{util, vk};
 
 use crate::engine::shader::Vertex;
 use crate::engine::swapchain::Swapchain;
@@ -15,23 +13,17 @@ pub enum DataOrganization {
     Smart,
 }
 
-pub struct GraphicsBuffer<T: ?Sized> {
-    data: Box<T>,
+pub struct GraphicsBuffer {
     memory: vk::DeviceMemory,
     buffer: vk::Buffer,
 }
 
-impl<T: ?Sized> GraphicsBuffer<T> {
-    fn prepare(
+impl GraphicsBuffer {
+    fn new(
         engine: &Engine,
         create_info: vk::BufferCreateInfo,
         device_local: bool,
-    ) -> (
-        Option<*mut c_void>,
-        vk::MemoryRequirements,
-        vk::DeviceMemory,
-        vk::Buffer,
-    ) {
+    ) -> (Option<*mut c_void>, vk::MemoryRequirements, Self) {
         let flags = if device_local {
             vk::MemoryPropertyFlags::DEVICE_LOCAL
         } else {
@@ -52,6 +44,10 @@ impl<T: ?Sized> GraphicsBuffer<T> {
                 ..Default::default()
             };
             let device_memory = engine.device.allocate_memory(&allocate_info, None).unwrap();
+            engine
+                .device
+                .bind_buffer_memory(vk_buffer, device_memory, 0)
+                .unwrap();
             let data_ptr = if device_local {
                 None
             } else {
@@ -63,57 +59,25 @@ impl<T: ?Sized> GraphicsBuffer<T> {
                 );
                 Some(ptr.unwrap())
             };
-            (data_ptr, memory_requirements, device_memory, vk_buffer)
+            (
+                data_ptr,
+                memory_requirements,
+                Self {
+                    memory: device_memory,
+                    buffer: vk_buffer,
+                },
+            )
         }
     }
 
-    fn delete(&self, engine: &Engine) {
+    fn stage_up(
+        &self,
+        engine: &Engine,
+        destination_buffer_info: vk::BufferCreateInfo,
+        size: usize,
+    ) -> Self {
+        let (_, _, destination) = GraphicsBuffer::new(engine, destination_buffer_info, true);
         unsafe {
-            engine.device.free_memory(self.memory, None);
-            engine.device.destroy_buffer(self.buffer, None);
-        }
-    }
-}
-
-pub struct VertexBuffer(GraphicsBuffer<[Vertex]>);
-
-impl VertexBuffer {
-    pub fn new(engine: &Engine, vertices: Box<[Vertex]>, style: DataOrganization) -> Self {
-        let source_size = size_of_val(&*vertices) as u64;
-        let create_info = vk::BufferCreateInfo {
-            size: source_size,
-            usage: vk::BufferUsageFlags::TRANSFER_SRC,
-            sharing_mode: vk::SharingMode::EXCLUSIVE,
-            ..Default::default()
-        };
-        let (data_ptr, memory_requirements, staging_memory, staging_buffer) =
-            GraphicsBuffer::<Vertex>::prepare(engine, create_info, false);
-
-        unsafe {
-            let mut alignment = Align::new(
-                data_ptr.unwrap(),
-                align_of::<f32>() as u64,
-                memory_requirements.size,
-            );
-            alignment.copy_from_slice(&*vertices);
-            engine.device.unmap_memory(staging_memory);
-            engine
-                .device
-                .bind_buffer_memory(staging_buffer, staging_memory, 0)
-                .unwrap();
-
-            let create_info = vk::BufferCreateInfo {
-                size: source_size,
-                usage: vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
-                sharing_mode: vk::SharingMode::EXCLUSIVE,
-                ..Default::default()
-            };
-            let (_, _, device_memory, vk_buffer) =
-                GraphicsBuffer::<Vertex>::prepare(engine, create_info, true);
-            engine
-                .device
-                .bind_buffer_memory(vk_buffer, device_memory, 0)
-                .unwrap();
             Engine::record_submit_commandbuffer(
                 &engine.device,
                 engine.setup_command_buffer,
@@ -123,25 +87,59 @@ impl VertexBuffer {
                 &[],
                 &[],
                 |device, command_buffer| {
-                    let copy_region = vk::BufferCopy::default().size(source_size);
+                    let copy_region = vk::BufferCopy::default().size(size as vk::DeviceSize);
                     device.cmd_copy_buffer(
                         command_buffer,
-                        staging_buffer,
-                        vk_buffer,
+                        self.buffer,
+                        destination.buffer,
                         &[copy_region],
                     )
                 },
             );
-            engine.device.free_memory(staging_memory, None);
-            engine.device.destroy_buffer(staging_buffer, None);
-            Self {
-                0: GraphicsBuffer {
-                    data: vertices,
-                    memory: device_memory,
-                    buffer: vk_buffer,
-                },
-            }
+            destination
         }
+    }
+
+    fn delete(&self, engine: &Engine) {
+        unsafe {
+            engine.device.destroy_buffer(self.buffer, None);
+            engine.device.free_memory(self.memory, None);
+        }
+    }
+}
+
+pub struct VertexBuffer(GraphicsBuffer);
+
+impl VertexBuffer {
+    pub fn new(engine: &Engine, vertices: Box<[Vertex]>, style: DataOrganization) -> Self {
+        let source_size = size_of_val(&*vertices);
+        let mut create_info = vk::BufferCreateInfo {
+            size: source_size as vk::DeviceSize,
+            usage: vk::BufferUsageFlags::TRANSFER_SRC,
+            sharing_mode: vk::SharingMode::EXCLUSIVE,
+            ..Default::default()
+        };
+        let (data_ptr, memory_requirements, staging_buffer) =
+            GraphicsBuffer::new(engine, create_info, false);
+
+        unsafe {
+            let mut alignment = util::Align::new(
+                data_ptr.unwrap(),
+                align_of::<f32>() as u64,
+                memory_requirements.size,
+            );
+            alignment.copy_from_slice(&*vertices);
+            engine.device.unmap_memory(staging_buffer.memory);
+            create_info = vk::BufferCreateInfo {
+                size: source_size as vk::DeviceSize,
+                usage: vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
+                sharing_mode: vk::SharingMode::EXCLUSIVE,
+                ..Default::default()
+            };
+        }
+        let destination = staging_buffer.stage_up(engine, create_info, source_size);
+        staging_buffer.delete(engine);
+        Self { 0: destination }
     }
 
     pub fn bind(&self, engine: &Engine, current_frame: usize) {
@@ -160,66 +158,42 @@ impl VertexBuffer {
     }
 }
 
-pub struct IndexBuffer(GraphicsBuffer<[u32]>);
+pub struct IndexBuffer {
+    graphics_buffer: GraphicsBuffer,
+    pub index_count: u32,
+}
 
 impl IndexBuffer {
     pub fn new(engine: &Engine, indices: Box<[u32]>) -> Self {
-        let source_size = size_of_val(&*indices) as u64;
-        let create_info = vk::BufferCreateInfo::default()
-            .size(source_size)
-            .usage(vk::BufferUsageFlags::TRANSFER_SRC)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE);
-        let (data_ptr, memory_requirements, staging_memory, staging_buffer) =
-            GraphicsBuffer::<u32>::prepare(engine, create_info, false);
+        let source_size = size_of_val(&*indices);
+        let mut create_info = vk::BufferCreateInfo {
+            size: source_size as vk::DeviceSize,
+            usage: vk::BufferUsageFlags::TRANSFER_SRC,
+            sharing_mode: vk::SharingMode::EXCLUSIVE,
+            ..Default::default()
+        };
+        let (data_ptr, memory_requirements, staging_buffer) =
+            GraphicsBuffer::new(engine, create_info, false);
         unsafe {
-            let mut alignment = Align::new(
+            let mut alignment = util::Align::new(
                 data_ptr.unwrap(),
                 align_of::<u32>() as u64,
                 memory_requirements.size,
             );
             alignment.copy_from_slice(&*indices);
-            engine.device.unmap_memory(staging_memory);
-            engine
-                .device
-                .bind_buffer_memory(staging_buffer, staging_memory, 0)
-                .unwrap();
-            let create_info = vk::BufferCreateInfo::default()
-                .size(source_size)
-                .usage(vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER)
-                .sharing_mode(vk::SharingMode::EXCLUSIVE);
-            let (_, _, device_memory, vk_buffer) =
-                GraphicsBuffer::<u32>::prepare(engine, create_info, true);
-            engine
-                .device
-                .bind_buffer_memory(vk_buffer, device_memory, 0)
-                .unwrap();
-            Engine::record_submit_commandbuffer(
-                &engine.device,
-                engine.setup_command_buffer,
-                engine.setup_commands_reuse_fence,
-                engine.present_queue,
-                &[],
-                &[],
-                &[],
-                |device, command_buffer| {
-                    let copy_region = vk::BufferCopy::default().size(source_size);
-                    device.cmd_copy_buffer(
-                        command_buffer,
-                        staging_buffer,
-                        vk_buffer,
-                        &[copy_region],
-                    )
-                },
-            );
-            engine.device.free_memory(staging_memory, None);
-            engine.device.destroy_buffer(staging_buffer, None);
-            Self {
-                0: GraphicsBuffer {
-                    data: indices,
-                    memory: device_memory,
-                    buffer: vk_buffer,
-                },
-            }
+            engine.device.unmap_memory(staging_buffer.memory);
+            create_info = vk::BufferCreateInfo {
+                size: source_size as vk::DeviceSize,
+                usage: vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
+                sharing_mode: vk::SharingMode::EXCLUSIVE,
+                ..Default::default()
+            };
+        }
+        let destination = staging_buffer.stage_up(engine, create_info, source_size);
+        staging_buffer.delete(engine);
+        Self {
+            graphics_buffer: destination,
+            index_count: indices.len() as u32,
         }
     }
 
@@ -227,73 +201,20 @@ impl IndexBuffer {
         unsafe {
             engine.device.cmd_bind_index_buffer(
                 engine.draw_command_buffers[current_frame],
-                self.0.buffer,
+                self.graphics_buffer.buffer,
                 0,
                 vk::IndexType::UINT32,
             );
         }
     }
 
-    pub fn index_count(&self) -> u32 {
-        self.0.data.len() as u32
-    }
-
     pub fn delete(&self, engine: &Engine) {
-        self.0.delete(engine);
-    }
-}
-
-pub struct ImageBuffer(GraphicsBuffer<RgbaImage>);
-
-impl ImageBuffer {
-    pub fn new(engine: &Engine, image: RgbaImage) -> Self {
-        let image_data = image.as_raw();
-        let create_info = vk::BufferCreateInfo {
-            size: (size_of::<u8>() * image_data.len()) as u64,
-            usage: vk::BufferUsageFlags::TRANSFER_SRC,
-            sharing_mode: vk::SharingMode::EXCLUSIVE,
-            ..Default::default()
-        };
-        let (data_ptr, memory_requirements, device_memory, vk_buffer) =
-            GraphicsBuffer::<u8>::prepare(engine, create_info, false); // TODO staging buffer
-        unsafe {
-            let mut alignment = Align::new(
-                data_ptr.unwrap(),
-                align_of::<u8>() as u64,
-                memory_requirements.size,
-            );
-            alignment.copy_from_slice(image_data);
-            engine.device.unmap_memory(device_memory);
-            engine
-                .device
-                .bind_buffer_memory(vk_buffer, device_memory, 0)
-                .unwrap();
-        }
-        Self {
-            0: GraphicsBuffer {
-                data: Box::new(image), // TODO only store dimensions
-                memory: device_memory,
-                buffer: vk_buffer,
-            },
-        }
-    }
-
-    pub fn get_buffer(&self) -> vk::Buffer {
-        self.0.buffer
-    }
-
-    pub fn get_image(&self) -> &RgbaImage {
-        &*self.0.data
-    }
-
-    pub fn delete(&self, engine: &Engine) {
-        self.0.delete(engine);
+        self.graphics_buffer.delete(engine);
     }
 }
 
 pub struct UniformBuffer {
-    memory: vk::DeviceMemory,
-    buffer: vk::Buffer,
+    graphics_buffer: GraphicsBuffer,
     pub descriptor: vk::DescriptorBufferInfo,
     pub data_ptr: Option<*mut c_void>,
     pub memory_requirements: vk::MemoryRequirements,
@@ -308,47 +229,60 @@ impl UniformBuffer {
             sharing_mode: vk::SharingMode::EXCLUSIVE,
             ..Default::default()
         };
-        let (data_ptr, memory_requirements, device_memory, vk_buffer) =
-            GraphicsBuffer::<T>::prepare(engine, create_info, false);
+        let (data_ptr, memory_requirements, graphics_buffer) =
+            GraphicsBuffer::new(engine, create_info, false);
         unsafe {
-            engine
-                .device
-                .bind_buffer_memory(vk_buffer, device_memory, 0)
-                .unwrap();
             let descriptor_buffer = vk::DescriptorBufferInfo {
-                buffer: vk_buffer,
+                buffer: graphics_buffer.buffer,
                 offset: 0,
                 range: size,
             };
             Self {
                 data_ptr,
                 memory_requirements,
-                memory: device_memory,
-                buffer: vk_buffer,
+                graphics_buffer,
                 descriptor: descriptor_buffer,
             }
         }
     }
 
     pub fn delete(&self, engine: &Engine) {
+        self.graphics_buffer.delete(engine);
+    }
+}
+
+struct ImageBuffer {
+    image_view: vk::ImageView,
+    memory: vk::DeviceMemory,
+    image: vk::Image,
+}
+
+impl ImageBuffer {
+    pub fn delete(&self, engine: &Engine) {
         unsafe {
             engine.device.free_memory(self.memory, None);
-            engine.device.destroy_buffer(self.buffer, None);
+            engine.device.destroy_image_view(self.image_view, None);
+            engine.device.destroy_image(self.image, None);
         }
     }
 }
 
 pub struct Texture {
-    pub image_view: vk::ImageView,
-    pub memory: vk::DeviceMemory,
-    pub image: vk::Image,
-    pub image_buffer: ImageBuffer,
+    image_buffer: ImageBuffer,
 }
 
 impl Texture {
-    pub fn new(engine: &Engine, image: RgbaImage) -> Self {
-        let image_buffer = ImageBuffer::new(engine, image);
-        let (width, height) = image_buffer.get_image().dimensions();
+    pub fn new(engine: &Engine, image: image::RgbaImage) -> Self {
+        let image_data = image.as_raw();
+        let create_info = vk::BufferCreateInfo {
+            size: (size_of::<u8>() * image_data.len()) as u64,
+            usage: vk::BufferUsageFlags::TRANSFER_SRC,
+            sharing_mode: vk::SharingMode::EXCLUSIVE,
+            ..Default::default()
+        };
+        let (data_ptr, memory_requirements, staging_buffer) =
+            GraphicsBuffer::new(engine, create_info, false);
+        let (width, height) = image.dimensions();
         let image_extent = vk::Extent2D { width, height };
         let create_info = vk::ImageCreateInfo {
             image_type: vk::ImageType::TYPE_2D,
@@ -363,6 +297,14 @@ impl Texture {
             ..Default::default()
         };
         unsafe {
+            let mut alignment = util::Align::new(
+                data_ptr.unwrap(),
+                align_of::<u8>() as u64,
+                memory_requirements.size,
+            );
+            alignment.copy_from_slice(image_data);
+            engine.device.unmap_memory(staging_buffer.memory);
+            // TODO free image
             let vk_image = engine.device.create_image(&create_info, None).unwrap();
             let memory_requirements = engine.device.get_image_memory_requirements(vk_image);
             let memory_index = Engine::find_memorytype_index(
@@ -376,10 +318,10 @@ impl Texture {
                 memory_type_index: memory_index,
                 ..Default::default()
             };
-            let device_memory = engine.device.allocate_memory(&allocate_info, None).unwrap();
+            let image_memory = engine.device.allocate_memory(&allocate_info, None).unwrap();
             engine
                 .device
-                .bind_image_memory(vk_image, device_memory, 0)
+                .bind_image_memory(vk_image, image_memory, 0)
                 .expect("Unable to bind depth image memory");
 
             Engine::record_submit_commandbuffer(
@@ -422,7 +364,7 @@ impl Texture {
 
                     device.cmd_copy_buffer_to_image(
                         texture_command_buffer,
-                        image_buffer.get_buffer(),
+                        staging_buffer.buffer,
                         vk_image,
                         vk::ImageLayout::TRANSFER_DST_OPTIMAL,
                         &[buffer_copy_regions],
@@ -452,6 +394,8 @@ impl Texture {
                     );
                 },
             );
+            engine.device.device_wait_idle().unwrap();
+            staging_buffer.delete(engine);
             let create_info = vk::ImageViewCreateInfo {
                 view_type: vk::ImageViewType::TYPE_2D,
                 format: create_info.format,
@@ -472,29 +416,25 @@ impl Texture {
             };
             let image_view = engine.device.create_image_view(&create_info, None).unwrap();
             Self {
-                image_view,
-                memory: device_memory,
-                image: vk_image,
-                image_buffer,
+                image_buffer: ImageBuffer {
+                    image_view,
+                    memory: image_memory,
+                    image: vk_image,
+                },
             }
         }
     }
 
+    pub fn get_image_view(&self) -> vk::ImageView {
+        self.image_buffer.image_view
+    }
+
     pub fn delete(&self, engine: &Engine) {
         self.image_buffer.delete(engine);
-        unsafe {
-            engine.device.free_memory(self.memory, None);
-            engine.device.destroy_image_view(self.image_view, None);
-            engine.device.destroy_image(self.image, None);
-        }
     }
 }
 
-pub struct DepthImage {
-    pub image_view: vk::ImageView,
-    pub memory: vk::DeviceMemory,
-    pub image: vk::Image,
-}
+pub struct DepthImage(ImageBuffer);
 
 impl DepthImage {
     pub fn new(
@@ -587,18 +527,20 @@ impl DepthImage {
             };
             let image_view = device.create_image_view(&create_info, None).unwrap();
             Self {
-                image_view,
-                memory: device_memory,
-                image: vk_image,
+                0: ImageBuffer {
+                    image_view,
+                    memory: device_memory,
+                    image: vk_image,
+                },
             }
         }
     }
 
+    pub fn get_image_view(&self) -> vk::ImageView {
+        self.0.image_view
+    }
+
     pub fn delete(&self, engine: &Engine) {
-        unsafe {
-            engine.device.free_memory(self.memory, None);
-            engine.device.destroy_image_view(self.image_view, None);
-            engine.device.destroy_image(self.image, None);
-        }
+        self.0.delete(engine);
     }
 }

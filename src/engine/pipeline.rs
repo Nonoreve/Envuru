@@ -1,16 +1,14 @@
-use std::ffi;
-use std::mem::ManuallyDrop;
+use std::{ffi, mem};
 
 use ash::vk;
-use ash::vk::RenderPass;
 
 use crate::engine::shader::{FragmentShader, Vertex, VertexShader};
 use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT};
 
 pub(crate) struct Pipeline {
-    pub renderpass: RenderPass,
-    pub framebuffers: ManuallyDrop<Vec<vk::Framebuffer>>,
-    pub graphics_pipelines: ManuallyDrop<Vec<vk::Pipeline>>,
+    pub renderpass: vk::RenderPass,
+    pub framebuffers: mem::ManuallyDrop<Vec<vk::Framebuffer>>,
+    pub graphics_pipelines: mem::ManuallyDrop<Vec<vk::Pipeline>>,
     pub vertex_shader: VertexShader,
     pub pipeline_layout: vk::PipelineLayout,
     pub fragment_shader: FragmentShader,
@@ -97,7 +95,7 @@ impl Pipeline {
                 .iter()
                 .map(|&present_image_view| {
                     let framebuffer_attachments =
-                        [present_image_view, engine.depth_image.image_view];
+                        [present_image_view, engine.depth_image.get_image_view()];
                     let frame_buffer_create_info = vk::FramebufferCreateInfo::default()
                         .render_pass(renderpass)
                         .attachments(&framebuffer_attachments)
@@ -264,15 +262,15 @@ impl Pipeline {
                 .unwrap();
             Pipeline {
                 renderpass,
-                framebuffers: ManuallyDrop::new(framebuffers),
-                graphics_pipelines: ManuallyDrop::new(graphics_pipelines),
+                framebuffers: mem::ManuallyDrop::new(framebuffers),
+                graphics_pipelines: mem::ManuallyDrop::new(graphics_pipelines),
                 vertex_shader,
                 fragment_shader,
                 pipeline_layout,
                 frames: 0,
                 descriptor_set_layout,
                 descriptor_pool,
-                descriptor_sets
+                descriptor_sets,
             }
         }
     }
@@ -285,7 +283,7 @@ impl Pipeline {
                 .iter()
                 .map(|&present_image_view| {
                     let framebuffer_attachments =
-                        [present_image_view, engine.depth_image.image_view];
+                        [present_image_view, engine.depth_image.get_image_view()];
                     let frame_buffer_create_info = vk::FramebufferCreateInfo::default()
                         .render_pass(self.renderpass)
                         .attachments(&framebuffer_attachments)
@@ -298,13 +296,13 @@ impl Pipeline {
                         .unwrap()
                 })
                 .collect();
-            self.framebuffers = ManuallyDrop::new(framebuffers)
+            self.framebuffers = mem::ManuallyDrop::new(framebuffers)
         }
     }
 
     pub fn delete_framebuffers(&mut self, engine: &Engine) {
         unsafe {
-            let framebuffers = ManuallyDrop::take(&mut self.framebuffers);
+            let framebuffers = mem::ManuallyDrop::take(&mut self.framebuffers);
             for framebuffer in framebuffers {
                 engine.device.destroy_framebuffer(framebuffer, None);
             }
@@ -313,7 +311,7 @@ impl Pipeline {
     pub fn delete(&mut self, engine: &Engine) {
         unsafe {
             engine.device.device_wait_idle().unwrap();
-            let graphics_pipelines = ManuallyDrop::take(&mut self.graphics_pipelines);
+            let graphics_pipelines = mem::ManuallyDrop::take(&mut self.graphics_pipelines);
             for pipeline in graphics_pipelines {
                 engine.device.destroy_pipeline(pipeline, None);
             }
@@ -329,7 +327,7 @@ impl Pipeline {
             engine
                 .device
                 .destroy_descriptor_pool(self.descriptor_pool, None);
-            let framebuffers = ManuallyDrop::take(&mut self.framebuffers);
+            let framebuffers = mem::ManuallyDrop::take(&mut self.framebuffers);
             for framebuffer in framebuffers {
                 engine.device.destroy_framebuffer(framebuffer, None);
             }
