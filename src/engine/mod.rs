@@ -15,7 +15,7 @@ mod swapchain;
 
 type DrawFrameFn = for<'a, 'b> fn(&'a Engine, &'b mut Pipeline);
 
-pub(crate) struct EngineBuilder {
+pub struct EngineBuilder {
     event_loop: event_loop::EventLoop<()>,
     window_handler: WindowHandler,
 }
@@ -127,13 +127,13 @@ unsafe extern "system" fn vulkan_debug_callback(
     _user_data: *mut std::os::raw::c_void,
 ) -> vk::Bool32 {
     let callback_data = *p_callback_data;
-    let message_id_number = callback_data.message_id_number;
-
-    let message_id_name = if callback_data.p_message_id_name.is_null() {
-        borrow::Cow::from("")
-    } else {
-        ffi::CStr::from_ptr(callback_data.p_message_id_name).to_string_lossy()
-    };
+    // let message_id_number = callback_data.message_id_number;
+    //
+    // let message_id_name = if callback_data.p_message_id_name.is_null() {
+    //     borrow::Cow::from("")
+    // } else {
+    //     ffi::CStr::from_ptr(callback_data.p_message_id_name).to_string_lossy()
+    // };
 
     let message = if callback_data.p_message.is_null() {
         borrow::Cow::from("")
@@ -151,32 +151,25 @@ unsafe extern "system" fn vulkan_debug_callback(
 }
 
 pub struct Engine {
-    pub instance: ash::Instance,
+    instance: ash::Instance,
     pub device: ash::Device,
     pub surface_loader: surface::Instance,
-    pub debug_utils_loader: debug_utils::Instance,
-    pub window: mem::ManuallyDrop<window::Window>,
-    pub debug_call_back: vk::DebugUtilsMessengerEXT,
-
-    pub device_memory_properties: vk::PhysicalDeviceMemoryProperties,
+    debug_utils_loader: debug_utils::Instance,
+    window: mem::ManuallyDrop<window::Window>,
+    debug_call_back: vk::DebugUtilsMessengerEXT,
+    device_memory_properties: vk::PhysicalDeviceMemoryProperties,
     pub present_queue: vk::Queue,
-
-    pub surface: vk::SurfaceKHR,
-    pub surface_format: vk::SurfaceFormatKHR,
-
+    surface: vk::SurfaceKHR,
+    surface_format: vk::SurfaceFormatKHR,
     pub swapchain: Swapchain,
-
-    pub pool: vk::CommandPool,
+    pool: vk::CommandPool,
     pub draw_command_buffers: Vec<vk::CommandBuffer>,
-    pub setup_command_buffer: vk::CommandBuffer,
-
-    pub depth_image: DepthImage,
-
+    setup_command_buffer: vk::CommandBuffer,
+    depth_image: DepthImage,
     pub present_complete_semaphores: Vec<vk::Semaphore>,
     pub rendering_complete_semaphores: Vec<vk::Semaphore>,
-
     pub draw_commands_reuse_fence: Vec<vk::Fence>,
-    pub setup_commands_reuse_fence: vk::Fence,
+    setup_commands_reuse_fence: vk::Fence,
     surface_capabilities: vk::SurfaceCapabilitiesKHR,
     pdevice: vk::PhysicalDevice,
 }

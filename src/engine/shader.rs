@@ -19,9 +19,9 @@ macro_rules! offset_of {
 
 #[derive(Copy, Clone)]
 pub struct MvpUbo {
-    pub(crate) model: cgmath::Matrix4<f32>,
-    pub(crate) view: cgmath::Matrix4<f32>,
-    pub(crate) projection: cgmath::Matrix4<f32>,
+    pub model: cgmath::Matrix4<f32>,
+    pub view: cgmath::Matrix4<f32>,
+    pub projection: cgmath::Matrix4<f32>,
 }
 
 pub struct VertexShader {
@@ -30,7 +30,7 @@ pub struct VertexShader {
     pub input_attribute_descriptions: Vec<vk::VertexInputAttributeDescription>,
     pub vertex_buffer: VertexBuffer,
     pub index_buffer: IndexBuffer,
-    pub(crate) uniform_mvp_buffers: Vec<UniformBuffer>,
+    pub uniform_mvp_buffers: Vec<UniformBuffer>,
 }
 
 impl VertexShader {
@@ -111,8 +111,8 @@ impl VertexShader {
 
 pub struct FragmentShader {
     pub module: vk::ShaderModule,
-    pub sampler: vk::Sampler,
-    pub texture: Texture,
+    sampler: vk::Sampler,
+    texture: Texture,
 }
 
 impl FragmentShader {
@@ -188,6 +188,6 @@ impl FragmentShader {
 
 #[derive(Clone, Debug, Copy)]
 pub struct Vertex {
-    pub pos: [f32; 4],
-    pub uv: [f32; 2],
+    pub pos: cgmath::Vector4<f32>,
+    pub uv: cgmath::Vector2<f32>,
 }

@@ -15,7 +15,7 @@ pub(crate) struct Pipeline {
     pub frames: u64,
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
-    pub(crate) descriptor_sets: Vec<vk::DescriptorSet>,
+    pub descriptor_sets: Vec<vk::DescriptorSet>,
 }
 
 impl Pipeline {
@@ -140,20 +140,20 @@ impl Pipeline {
             );
             let vertices = [
                 Vertex {
-                    pos: [-1.0, -1.0, 0.0, 1.0],
-                    uv: [0.0, 0.0],
+                    pos: cgmath::vec4(-1.0, -1.0, 0.0, 1.0),
+                    uv: cgmath::vec2(0.0, 0.0),
                 },
                 Vertex {
-                    pos: [-1.0, 1.0, 0.0, 1.0],
-                    uv: [0.0, 1.0],
+                    pos: cgmath::vec4(-1.0, 1.0, 0.0, 1.0),
+                    uv: cgmath::vec2(0.0, 1.0),
                 },
                 Vertex {
-                    pos: [1.0, 1.0, 0.0, 1.0],
-                    uv: [1.0, 1.0],
+                    pos: cgmath::vec4(1.0, 1.0, 0.0, 1.0),
+                    uv: cgmath::vec2(1.0, 1.0),
                 },
                 Vertex {
-                    pos: [1.0, -1.0, 0.0, 1.0],
-                    uv: [1.0, 0.0],
+                    pos: cgmath::vec4(1.0, -1.0, 0.0, 1.0),
+                    uv: cgmath::vec2(1.0, 0.0),
                 },
             ];
             let index_buffer_data = Box::new([0u32, 1, 2, 2, 3, 0]);

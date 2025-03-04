@@ -304,7 +304,7 @@ impl Texture {
             );
             alignment.copy_from_slice(image_data);
             engine.device.unmap_memory(staging_buffer.memory);
-            // TODO free image
+            drop(image);
             let vk_image = engine.device.create_image(&create_info, None).unwrap();
             let memory_requirements = engine.device.get_image_memory_requirements(vk_image);
             let memory_index = Engine::find_memorytype_index(

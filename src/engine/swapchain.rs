@@ -1,14 +1,14 @@
+use crate::engine::Engine;
 use ash::khr::{surface, swapchain};
 use ash::vk;
 use winit::dpi;
-use crate::engine::Engine;
 
-pub struct Swapchain {
+pub(crate) struct Swapchain {
     swapchain_loader: swapchain::Device,
-    pub swapchain: vk::SwapchainKHR,
-    pub present_images: Vec<vk::Image>,
+    swapchain: vk::SwapchainKHR,
+    present_images: Vec<vk::Image>,
     pub present_image_views: Vec<vk::ImageView>,
-    pub(crate) surface_resolution: vk::Extent2D,
+    pub surface_resolution: vk::Extent2D,
 }
 
 impl Swapchain {
