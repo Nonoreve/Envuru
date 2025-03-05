@@ -18,6 +18,7 @@ pub(crate) struct Pipeline {
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
     pub descriptor_sets: Vec<vk::DescriptorSet>,
+    pub aspect_ratio: f32,
 }
 
 impl Pipeline {
@@ -252,6 +253,8 @@ impl Pipeline {
                 )
                 .unwrap();
             assert_eq!(graphics_pipelines.len(), 1);
+            let aspect_ratio = engine.swapchain.surface_resolution.width as f32
+                / engine.swapchain.surface_resolution.height as f32;
             Pipeline {
                 renderpass,
                 framebuffers: mem::ManuallyDrop::new(framebuffers),
@@ -263,6 +266,7 @@ impl Pipeline {
                 descriptor_set_layout,
                 descriptor_pool,
                 descriptor_sets,
+                aspect_ratio,
             }
         }
     }
@@ -300,6 +304,7 @@ impl Pipeline {
             }
         }
     }
+
     pub fn delete(&mut self, engine: &Engine) {
         unsafe {
             engine.device.device_wait_idle().unwrap();
