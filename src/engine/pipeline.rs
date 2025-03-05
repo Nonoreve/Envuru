@@ -2,7 +2,9 @@ use std::{ffi, mem};
 
 use ash::vk;
 
-use crate::engine::shader::{FragmentShader, Vertex, VertexShader};
+use crate::engine::shader::{
+    FragmentShader, FragmentShaderInputs, VertexShader, VertexShaderInputs,
+};
 use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT};
 
 pub(crate) struct Pipeline {
@@ -19,7 +21,13 @@ pub(crate) struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn new(engine: &Engine) -> Self {
+    pub fn new(
+        engine: &Engine,
+        vertex_shader_bytes: &[u8],
+        vertex_shader_inputs: VertexShaderInputs,
+        fragment_shader_bytes: &[u8],
+        fragment_shader_inputs: FragmentShaderInputs,
+    ) -> Self {
         let renderpass_attachments = [
             vk::AttachmentDescription {
                 format: engine.surface_format.format,
@@ -125,7 +133,9 @@ impl Pipeline {
                 .device
                 .create_descriptor_pool(&descriptor_pool_info, None)
                 .unwrap();
-            let desc_set_layouts = [descriptor_set_layout, descriptor_set_layout.clone()]; // TODO dynamic based on MAX_FRAMES_IN_FLIGHT
+            let desc_set_layouts: Vec<vk::DescriptorSetLayout> = (0..MAX_FRAMES_IN_FLIGHT)
+                .map(|_| descriptor_set_layout.clone())
+                .collect();
             let desc_alloc_info = vk::DescriptorSetAllocateInfo::default()
                 .descriptor_pool(descriptor_pool)
                 .set_layouts(&desc_set_layouts);
@@ -135,33 +145,14 @@ impl Pipeline {
                 .unwrap();
             let fragment_shader = FragmentShader::new(
                 &engine,
-                include_bytes!("../../target/frag.spv"),
+                fragment_shader_bytes,
+                fragment_shader_inputs,
                 &descriptor_sets,
             );
-            let vertices = [
-                Vertex {
-                    pos: cgmath::vec4(-1.0, -1.0, 0.0, 1.0),
-                    uv: cgmath::vec2(0.0, 0.0),
-                },
-                Vertex {
-                    pos: cgmath::vec4(-1.0, 1.0, 0.0, 1.0),
-                    uv: cgmath::vec2(0.0, 1.0),
-                },
-                Vertex {
-                    pos: cgmath::vec4(1.0, 1.0, 0.0, 1.0),
-                    uv: cgmath::vec2(1.0, 1.0),
-                },
-                Vertex {
-                    pos: cgmath::vec4(1.0, -1.0, 0.0, 1.0),
-                    uv: cgmath::vec2(1.0, 0.0),
-                },
-            ];
-            let index_buffer_data = Box::new([0u32, 1, 2, 2, 3, 0]);
             let vertex_shader = VertexShader::new(
                 &engine,
-                include_bytes!("../../target/vert.spv"),
-                Box::new(vertices),
-                index_buffer_data,
+                vertex_shader_bytes,
+                vertex_shader_inputs,
                 &descriptor_sets,
             );
             let layout_create_info =

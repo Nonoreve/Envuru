@@ -1,10 +1,9 @@
 use std::io::Cursor;
 use std::mem;
 
-use ash::{util, vk};
-
 use crate::engine::memory::{DataOrganization, IndexBuffer, Texture, UniformBuffer, VertexBuffer};
 use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT};
+use ash::{util, vk};
 
 #[macro_export]
 macro_rules! offset_of {
@@ -24,6 +23,11 @@ pub struct MvpUbo {
     pub projection: cgmath::Matrix4<f32>,
 }
 
+pub struct VertexShaderInputs {
+    pub vertices: Box<[Vertex]>,
+    pub indices: Box<[u32]>,
+}
+
 pub struct VertexShader {
     pub module: vk::ShaderModule,
     pub input_binding_descriptions: Vec<vk::VertexInputBindingDescription>,
@@ -36,12 +40,11 @@ pub struct VertexShader {
 impl VertexShader {
     pub fn new(
         engine: &Engine,
-        spv_data: &[u8],
-        vertices: Box<[Vertex]>,
-        indices: Box<[u32]>,
+        vertex_shader_bytes: &[u8],
+        vertex_shader_inputs: VertexShaderInputs,
         descriptor_sets: &Vec<vk::DescriptorSet>,
     ) -> Self {
-        let mut spv_data = Cursor::new(spv_data);
+        let mut spv_data = Cursor::new(vertex_shader_bytes);
         let spv_data = util::read_spv(&mut spv_data).unwrap();
         let vertex_shader_info = vk::ShaderModuleCreateInfo::default().code(&spv_data);
         let input_binding_descriptions = vec![vk::VertexInputBindingDescription {
@@ -63,8 +66,12 @@ impl VertexShader {
                 offset: offset_of!(Vertex, uv) as u32,
             },
         ];
-        let vertex_buffer = VertexBuffer::new(engine, vertices, DataOrganization::ObjectMajor);
-        let index_buffer = IndexBuffer::new(engine, indices);
+        let vertex_buffer = VertexBuffer::new(
+            engine,
+            vertex_shader_inputs.vertices,
+            DataOrganization::ObjectMajor,
+        );
+        let index_buffer = IndexBuffer::new(engine, vertex_shader_inputs.indices);
         let uniform_mvp_buffers: Vec<UniformBuffer> = (0..MAX_FRAMES_IN_FLIGHT)
             .map(|_| UniformBuffer::new::<MvpUbo>(engine))
             .collect();
@@ -109,6 +116,12 @@ impl VertexShader {
     }
 }
 
+struct ShaderImage();
+
+pub struct FragmentShaderInputs {
+    pub(crate) image: image::DynamicImage,
+}
+
 pub struct FragmentShader {
     pub module: vk::ShaderModule,
     sampler: vk::Sampler,
@@ -116,10 +129,13 @@ pub struct FragmentShader {
 }
 
 impl FragmentShader {
-    pub fn new(engine: &Engine, spv_data: &[u8], descriptor_sets: &Vec<vk::DescriptorSet>) -> Self {
-        let image = image::load_from_memory(include_bytes!("../../resources/textures/charlie.jpg"))
-            .unwrap()
-            .to_rgba8();
+    pub fn new(
+        engine: &Engine,
+        fragment_shader_bytes: &[u8],
+        fragment_shader_inputs: FragmentShaderInputs,
+        descriptor_sets: &Vec<vk::DescriptorSet>,
+    ) -> Self {
+        let image = fragment_shader_inputs.image.to_rgba8();
         let texture = Texture::new(engine, image);
         let sampler_info = vk::SamplerCreateInfo {
             flags: Default::default(),
@@ -163,7 +179,7 @@ impl FragmentShader {
                 }];
                 engine.device.update_descriptor_sets(&write_desc_sets, &[]);
             }
-            let mut frag_spv_file = Cursor::new(spv_data);
+            let mut frag_spv_file = Cursor::new(fragment_shader_bytes);
             let frag_code = util::read_spv(&mut frag_spv_file)
                 .expect("Failed to read fragment shader spv file");
             let frag_shader_info = vk::ShaderModuleCreateInfo::default().code(&frag_code);

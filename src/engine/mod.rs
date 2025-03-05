@@ -1,12 +1,15 @@
-use crate::engine::memory::DepthImage;
-use crate::engine::pipeline::Pipeline;
-use crate::engine::swapchain::Swapchain;
+use std::{borrow, ffi, mem, process, sync};
+
 use ash::ext::debug_utils;
 use ash::khr::surface;
 use ash::{khr, vk};
-use std::{borrow, ffi, mem, process, sync};
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::{application, dpi, event, event_loop, window};
+
+use crate::engine::memory::DepthImage;
+use crate::engine::pipeline::Pipeline;
+use crate::engine::shader::{FragmentShaderInputs, Vertex, VertexShaderInputs};
+use crate::engine::swapchain::Swapchain;
 
 mod memory;
 pub(crate) mod pipeline;
@@ -38,7 +41,40 @@ impl application::ApplicationHandler for WindowHandler {
                 self.name.clone(),
                 event_loop,
             );
-            self.pipeline = Some(Pipeline::new(&engine));
+            let vertices = [
+                Vertex {
+                    pos: cgmath::vec4(-1.0, -1.0, 0.0, 1.0),
+                    uv: cgmath::vec2(0.0, 0.0),
+                },
+                Vertex {
+                    pos: cgmath::vec4(-1.0, 1.0, 0.0, 1.0),
+                    uv: cgmath::vec2(0.0, 1.0),
+                },
+                Vertex {
+                    pos: cgmath::vec4(1.0, 1.0, 0.0, 1.0),
+                    uv: cgmath::vec2(1.0, 1.0),
+                },
+                Vertex {
+                    pos: cgmath::vec4(1.0, -1.0, 0.0, 1.0),
+                    uv: cgmath::vec2(1.0, 0.0),
+                },
+            ];
+            let index_buffer_data = Box::new([0u32, 1, 2, 2, 3, 0]);
+            self.pipeline = Some(Pipeline::new(
+                &engine,
+                include_bytes!("../../target/vert.spv"),
+                VertexShaderInputs {
+                    vertices: Box::new(vertices),
+                    indices: index_buffer_data,
+                },
+                include_bytes!("../../target/frag.spv"),
+                FragmentShaderInputs {
+                    image: image::load_from_memory(include_bytes!(
+                        "../../resources/textures/charlie.jpg"
+                    ))
+                    .unwrap(),
+                },
+            ));
             self.engine = Some(engine);
         }
     }
