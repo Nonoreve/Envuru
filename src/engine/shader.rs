@@ -17,10 +17,17 @@ macro_rules! offset_of {
 }
 
 #[derive(Copy, Clone)]
+#[allow(dead_code)]
 pub struct MvpUbo {
     pub model: cgmath::Matrix4<f32>,
     pub view: cgmath::Matrix4<f32>,
     pub projection: cgmath::Matrix4<f32>,
+}
+
+#[derive(Clone, Debug, Copy)]
+pub struct Vertex {
+    pub pos: cgmath::Vector4<f32>,
+    pub uv: cgmath::Vector2<f32>,
 }
 
 pub struct VertexShaderInputs {
@@ -116,8 +123,6 @@ impl VertexShader {
     }
 }
 
-struct ShaderImage();
-
 pub struct FragmentShaderInputs {
     pub(crate) image: image::DynamicImage,
 }
@@ -195,15 +200,11 @@ impl FragmentShader {
         }
     }
 
-    pub unsafe fn delete(&mut self, engine: &Engine) {
-        engine.device.destroy_shader_module(self.module, None);
-        self.texture.delete(engine);
-        engine.device.destroy_sampler(self.sampler, None);
+    pub fn delete(&mut self, engine: &Engine) {
+        unsafe {
+            engine.device.destroy_shader_module(self.module, None);
+            self.texture.delete(engine);
+            engine.device.destroy_sampler(self.sampler, None);
+        }
     }
-}
-
-#[derive(Clone, Debug, Copy)]
-pub struct Vertex {
-    pub pos: cgmath::Vector4<f32>,
-    pub uv: cgmath::Vector2<f32>,
 }

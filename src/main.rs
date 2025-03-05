@@ -90,7 +90,7 @@ fn draw_frame(engine: &Engine, runtime_data: &mut Pipeline) {
                 device.cmd_bind_pipeline(
                     draw_command_buffer,
                     vk::PipelineBindPoint::GRAPHICS,
-                    runtime_data.graphics_pipelines[0], // TODO choose instead of assert first one
+                    runtime_data.graphics_pipelines[0],
                 );
                 device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
                 device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
@@ -129,6 +129,6 @@ fn draw_frame(engine: &Engine, runtime_data: &mut Pipeline) {
 }
 
 fn main() {
-    let mut engine_builder = engine::EngineBuilder::new(960, 540, "Envuru", draw_frame);
+    let engine_builder = engine::EngineBuilder::new(960, 540, "Envuru", draw_frame);
     engine_builder.start();
 }

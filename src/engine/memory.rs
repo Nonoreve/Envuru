@@ -231,18 +231,16 @@ impl UniformBuffer {
         };
         let (data_ptr, memory_requirements, graphics_buffer) =
             GraphicsBuffer::new(engine, create_info, false);
-        unsafe {
-            let descriptor_buffer = vk::DescriptorBufferInfo {
-                buffer: graphics_buffer.buffer,
-                offset: 0,
-                range: size,
-            };
-            Self {
-                data_ptr,
-                memory_requirements,
-                graphics_buffer,
-                descriptor: descriptor_buffer,
-            }
+        let descriptor_buffer = vk::DescriptorBufferInfo {
+            buffer: graphics_buffer.buffer,
+            offset: 0,
+            range: size,
+        };
+        Self {
+            data_ptr,
+            memory_requirements,
+            graphics_buffer,
+            descriptor: descriptor_buffer,
         }
     }
 

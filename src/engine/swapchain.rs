@@ -6,7 +6,6 @@ use winit::dpi;
 pub(crate) struct Swapchain {
     swapchain_loader: swapchain::Device,
     swapchain: vk::SwapchainKHR,
-    present_images: Vec<vk::Image>,
     pub present_image_views: Vec<vk::ImageView>,
     pub surface_resolution: vk::Extent2D,
 }
@@ -97,7 +96,6 @@ impl Swapchain {
             Self {
                 swapchain_loader,
                 swapchain,
-                present_images,
                 present_image_views,
                 surface_resolution,
             }

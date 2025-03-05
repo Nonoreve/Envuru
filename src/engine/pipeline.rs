@@ -251,6 +251,7 @@ impl Pipeline {
                     None,
                 )
                 .unwrap();
+            assert_eq!(graphics_pipelines.len(), 1);
             Pipeline {
                 renderpass,
                 framebuffers: mem::ManuallyDrop::new(framebuffers),
