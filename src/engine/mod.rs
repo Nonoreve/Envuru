@@ -9,15 +9,17 @@ use winit::{application, dpi, event, event_loop, window};
 
 use crate::engine::memory::DepthImage;
 use crate::engine::pipeline::Pipeline;
+use crate::engine::scene::Scene;
 use crate::engine::shader::{FragmentShaderInputs, MvpUbo, Vertex, VertexShaderInputs};
 use crate::engine::swapchain::Swapchain;
 
 mod memory;
-pub(crate) mod pipeline;
+pub mod pipeline;
+pub mod scene;
 pub(crate) mod shader;
 mod swapchain;
 
-type UpdateFn = for<'a, 'b> fn(&'a Engine, &'b mut Pipeline) -> MvpUbo;
+type UpdateFn = for<'a, 'b> fn(&'b mut Scene, &'b mut Pipeline);
 
 pub struct EngineBuilder {
     event_loop: event_loop::EventLoop<()>,
@@ -29,17 +31,19 @@ struct WindowHandler {
     pipeline: Option<Pipeline>,
     preferred_width: u32,
     preferred_height: u32,
-    name: ffi::CString,
+    name: String,
     update_function: UpdateFn,
+    scenes: Vec<Scene>,
+    starting_scene: usize,
 }
 
-impl application::ApplicationHandler for WindowHandler {
+impl<'a> application::ApplicationHandler for WindowHandler {
     fn resumed(&mut self, event_loop: &event_loop::ActiveEventLoop) {
         if self.engine.is_none() {
             let engine = Engine::new(
                 self.preferred_width,
                 self.preferred_height,
-                self.name.clone(),
+                &self.name,
                 event_loop,
             );
             let vertices = [
@@ -91,34 +95,41 @@ impl application::ApplicationHandler for WindowHandler {
                 event_loop.exit();
             }
             event::WindowEvent::RedrawRequested => {
-                let mvp = (self.update_function)(
-                    self.engine.as_ref().unwrap(),
+                (self.update_function)(
+                    self.scenes.get_mut(self.starting_scene).unwrap(),
                     self.pipeline.as_mut().unwrap(),
                 );
-                self.engine
-                    .as_ref()
-                    .unwrap()
-                    .draw_frame(self.pipeline.as_mut().unwrap(), mvp)
+                self.engine.as_ref().unwrap().draw_frame(
+                    self.pipeline.as_mut().unwrap(),
+                    self.scenes.get(self.starting_scene).unwrap(),
+                )
             }
-            event::WindowEvent::Resized(_new_size) => self
-                .engine
-                .as_mut()
-                .unwrap()
-                .on_window_resize(self.pipeline.as_mut().unwrap()),
+            event::WindowEvent::Resized(_new_size) => {
+                self.engine
+                    .as_mut()
+                    .unwrap()
+                    .on_window_resize(self.pipeline.as_mut().unwrap());
+                self.scenes
+                    .get_mut(self.starting_scene)
+                    .unwrap()
+                    .camera
+                    .projection
+                    .aspect = self.pipeline.as_ref().unwrap().aspect_ratio
+            }
 
             _ => (),
         }
     }
 
     fn about_to_wait(&mut self, _event_loop: &event_loop::ActiveEventLoop) {
-        let mvp = (self.update_function)(
-            self.engine.as_ref().unwrap(),
+        (self.update_function)(
+            self.scenes.get_mut(self.starting_scene).unwrap(),
             self.pipeline.as_mut().unwrap(),
         );
-        self.engine
-            .as_ref()
-            .unwrap()
-            .draw_frame(self.pipeline.as_mut().unwrap(), mvp)
+        self.engine.as_ref().unwrap().draw_frame(
+            self.pipeline.as_mut().unwrap(),
+            self.scenes.get(self.starting_scene).unwrap(),
+        )
     }
 
     fn exiting(&mut self, _event_loop: &event_loop::ActiveEventLoop) {
@@ -128,6 +139,7 @@ impl application::ApplicationHandler for WindowHandler {
             .delete(self.engine.as_ref().unwrap());
     }
 }
+
 impl EngineBuilder {
     pub fn new(
         preferred_width: u32,
@@ -137,14 +149,15 @@ impl EngineBuilder {
     ) -> Self {
         let event_loop = event_loop::EventLoop::new().unwrap();
         event_loop.set_control_flow(event_loop::ControlFlow::Poll);
-        let app_name = ffi::CString::new(name).unwrap();
         let window_handler = WindowHandler {
             engine: None,
             pipeline: None,
             preferred_width,
             preferred_height,
-            name: app_name,
+            name: String::from(name),
             update_function,
+            scenes: Vec::new(),
+            starting_scene: 0,
         };
         Self {
             event_loop,
@@ -152,7 +165,14 @@ impl EngineBuilder {
         }
     }
 
-    pub fn start(mut self) {
+    pub fn register_scene(&mut self, scene: Scene) -> usize {
+        self.window_handler.scenes.push(scene);
+        self.window_handler.scenes.len() - 1
+    }
+
+    pub fn start(mut self, scene_index: usize) {
+        self.window_handler.starting_scene = scene_index;
+        assert!(self.window_handler.scenes.len() > self.window_handler.starting_scene);
         self.event_loop.run_app(&mut self.window_handler).unwrap();
     }
 }
@@ -226,13 +246,18 @@ impl Engine {
     pub fn new(
         preferred_width: u32,
         preferred_height: u32,
-        name: ffi::CString,
+        name: &str,
         event_loop: &event_loop::ActiveEventLoop,
     ) -> Self {
         let window = event_loop
-            .create_window(window::Window::default_attributes().with_inner_size(
-                dpi::LogicalSize::new(f64::from(preferred_width), f64::from(preferred_height)),
-            ))
+            .create_window(
+                window::Window::default_attributes()
+                    .with_inner_size(dpi::LogicalSize::new(
+                        f64::from(preferred_width),
+                        f64::from(preferred_height),
+                    ))
+                    .with_title(name),
+            )
             .unwrap();
         let app_name = ffi::CString::new(name).unwrap();
         let appinfo = vk::ApplicationInfo::default()
@@ -407,47 +432,37 @@ impl Engine {
         }
     }
 
-    fn draw_frame(&self, runtime_data: &mut Pipeline, mvp: MvpUbo) {
+    fn draw_frame(&self, pipeline: &mut Pipeline, scene: &Scene) {
+        let current_frame = (pipeline.frames % MAX_FRAMES_IN_FLIGHT as u64) as usize;
+        let clear_values = [
+            vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.0, 0.0],
+                },
+            },
+            vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue {
+                    depth: 1.0,
+                    stencil: 0,
+                },
+            },
+        ];
+        let viewports = [vk::Viewport {
+            x: 0.0,
+            y: 0.0,
+            width: self.swapchain.surface_resolution.width as f32,
+            height: self.swapchain.surface_resolution.height as f32,
+            min_depth: 0.0,
+            max_depth: 1.0,
+        }];
+        let scissors = [self.swapchain.surface_resolution.into()];
+
         unsafe {
-            let current_frame = (runtime_data.frames % MAX_FRAMES_IN_FLIGHT as u64) as usize;
             self.device.device_wait_idle().unwrap();
             let present_index = self.swapchain.next_image(self, current_frame);
-            let clear_values = [
-                vk::ClearValue {
-                    color: vk::ClearColorValue {
-                        float32: [0.0, 0.0, 0.0, 0.0],
-                    },
-                },
-                vk::ClearValue {
-                    depth_stencil: vk::ClearDepthStencilValue {
-                        depth: 1.0,
-                        stencil: 0,
-                    },
-                },
-            ];
-            let mut alignment = util::Align::new(
-                runtime_data.vertex_shader.uniform_mvp_buffers[current_frame]
-                    .data_ptr
-                    .unwrap(),
-                align_of::<f32>() as u64,
-                runtime_data.vertex_shader.uniform_mvp_buffers[current_frame]
-                    .memory_requirements
-                    .size,
-            );
-            alignment.copy_from_slice(&[mvp]);
-            let viewports = [vk::Viewport {
-                x: 0.0,
-                y: 0.0,
-                width: self.swapchain.surface_resolution.width as f32,
-                height: self.swapchain.surface_resolution.height as f32,
-                min_depth: 0.0,
-                max_depth: 1.0,
-            }];
-            let scissors = [self.swapchain.surface_resolution.into()];
-
             let render_pass_begin_info = vk::RenderPassBeginInfo::default()
-                .render_pass(runtime_data.renderpass)
-                .framebuffer(runtime_data.framebuffers[present_index as usize])
+                .render_pass(pipeline.renderpass)
+                .framebuffer(pipeline.framebuffers[present_index as usize])
                 .render_area(self.swapchain.surface_resolution.into())
                 .clear_values(&clear_values);
 
@@ -468,39 +483,56 @@ impl Engine {
                     device.cmd_bind_pipeline(
                         draw_command_buffer,
                         vk::PipelineBindPoint::GRAPHICS,
-                        runtime_data.graphics_pipelines[0],
+                        pipeline.graphics_pipelines[0],
                     );
                     device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
                     device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
-                    runtime_data
-                        .vertex_shader
-                        .vertex_buffer
-                        .bind(self, current_frame);
-                    runtime_data
-                        .vertex_shader
-                        .index_buffer
-                        .bind(self, current_frame);
-                    device.cmd_bind_descriptor_sets(
-                        draw_command_buffer,
-                        vk::PipelineBindPoint::GRAPHICS,
-                        runtime_data.pipeline_layout,
-                        0,
-                        &[runtime_data.descriptor_sets[current_frame]],
-                        &[],
-                    );
-                    device.cmd_draw_indexed(
-                        draw_command_buffer,
-                        runtime_data.vertex_shader.index_buffer.index_count,
-                        1,
-                        0,
-                        0,
-                        1,
-                    );
+                    for object in &scene.objects {
+                        let mvp = MvpUbo {
+                            model: cgmath::Matrix4::from(object.model),
+                            view: scene.camera.view,
+                            projection: cgmath::Matrix4::from(scene.camera.projection),
+                        };
+                        let mut alignment = util::Align::new(
+                            pipeline.vertex_shader.uniform_mvp_buffers[current_frame]
+                                .data_ptr
+                                .unwrap(),
+                            align_of::<f32>() as u64,
+                            pipeline.vertex_shader.uniform_mvp_buffers[current_frame]
+                                .memory_requirements
+                                .size,
+                        );
+                        alignment.copy_from_slice(&[mvp]);
+                        pipeline
+                            .vertex_shader
+                            .vertex_buffer
+                            .bind(self, current_frame);
+                        pipeline
+                            .vertex_shader
+                            .index_buffer
+                            .bind(self, current_frame);
+                        device.cmd_bind_descriptor_sets(
+                            draw_command_buffer,
+                            vk::PipelineBindPoint::GRAPHICS,
+                            pipeline.pipeline_layout,
+                            0,
+                            &[pipeline.descriptor_sets[current_frame]],
+                            &[],
+                        );
+                        device.cmd_draw_indexed(
+                            draw_command_buffer,
+                            pipeline.vertex_shader.index_buffer.index_count,
+                            1,
+                            0,
+                            0,
+                            1,
+                        );
+                    }
                     device.cmd_end_render_pass(draw_command_buffer);
                 },
             );
             self.swapchain.present(self, current_frame, present_index);
-            runtime_data.frames += 1 % u64::MAX;
+            pipeline.frames += 1 % u64::MAX;
         }
     }
 
@@ -533,6 +565,8 @@ impl Engine {
                 self.present_queue,
             );
             pipeline.new_framebuffers(self);
+            pipeline.aspect_ratio = self.swapchain.surface_resolution.width as f32
+                / self.swapchain.surface_resolution.height as f32;
             // TODO recreate renderpass if image format was changed
         }
     }
