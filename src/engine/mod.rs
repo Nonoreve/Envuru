@@ -2,7 +2,7 @@ use std::{borrow, ffi, mem, process, sync};
 
 use ash::ext::debug_utils;
 use ash::khr::surface;
-use ash::{khr, util, vk};
+use ash::{khr, vk};
 use cgmath::Rotation3;
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::{application, dpi, event, event_loop, window};
@@ -10,7 +10,7 @@ use winit::{application, dpi, event, event_loop, window};
 use crate::engine::memory::DepthImage;
 use crate::engine::pipeline::Pipeline;
 use crate::engine::scene::Scene;
-use crate::engine::shader::{FragmentShaderInputs, MvpUbo, Vertex, VertexShaderInputs};
+use crate::engine::shader::MvpUbo;
 use crate::engine::swapchain::Swapchain;
 
 mod memory;
@@ -46,40 +46,8 @@ impl<'a> application::ApplicationHandler for WindowHandler {
                 &self.name,
                 event_loop,
             );
-            let vertices = [
-                Vertex {
-                    pos: cgmath::vec4(-1.0, -1.0, 0.0, 1.0),
-                    uv: cgmath::vec2(0.0, 0.0),
-                },
-                Vertex {
-                    pos: cgmath::vec4(-1.0, 1.0, 0.0, 1.0),
-                    uv: cgmath::vec2(0.0, 1.0),
-                },
-                Vertex {
-                    pos: cgmath::vec4(1.0, 1.0, 0.0, 1.0),
-                    uv: cgmath::vec2(1.0, 1.0),
-                },
-                Vertex {
-                    pos: cgmath::vec4(1.0, -1.0, 0.0, 1.0),
-                    uv: cgmath::vec2(1.0, 0.0),
-                },
-            ];
-            let index_buffer_data = Box::new([0u32, 1, 2, 2, 3, 0]);
-            self.pipeline = Some(Pipeline::new(
-                &engine,
-                include_bytes!("../../target/vert.spv"),
-                VertexShaderInputs {
-                    vertices: Box::new(vertices),
-                    indices: index_buffer_data,
-                },
-                include_bytes!("../../target/frag.spv"),
-                FragmentShaderInputs {
-                    image: image::load_from_memory(include_bytes!(
-                        "../../resources/textures/charlie.jpg"
-                    ))
-                    .unwrap(),
-                },
-            ));
+            let objects = &mut self.scenes.get_mut(self.starting_scene).unwrap().objects;
+            self.pipeline = Some(Pipeline::new(&engine, objects));
             self.engine = Some(engine);
         }
     }
@@ -131,12 +99,22 @@ impl<'a> application::ApplicationHandler for WindowHandler {
             self.scenes.get(self.starting_scene).unwrap(),
         )
     }
+}
 
-    fn exiting(&mut self, _event_loop: &event_loop::ActiveEventLoop) {
-        self.pipeline
-            .as_mut()
-            .unwrap()
-            .delete(self.engine.as_ref().unwrap());
+impl WindowHandler {
+    fn delete(&mut self) {
+        for scene in self.scenes.iter_mut() {
+            for object in scene.objects.iter_mut() {
+                object.delete()
+            }
+            self.pipeline
+                .as_mut()
+                .unwrap()
+                .delete(self.engine.as_ref().unwrap(), scene.meshes.as_mut());
+            for material in scene.materials.iter_mut() {
+                material.delete(self.engine.as_ref().unwrap())
+            }
+        }
     }
 }
 
@@ -174,6 +152,7 @@ impl EngineBuilder {
         self.window_handler.starting_scene = scene_index;
         assert!(self.window_handler.scenes.len() > self.window_handler.starting_scene);
         self.event_loop.run_app(&mut self.window_handler).unwrap();
+        self.window_handler.delete();
     }
 }
 
@@ -406,6 +385,8 @@ impl Engine {
                         .unwrap()
                 })
                 .collect();
+            let limits = instance.get_physical_device_properties(pdevice).limits;
+            // println!("limits={:#?}", limits); TODO get max number of images allowed on gpu
             Self {
                 instance,
                 device,
@@ -493,24 +474,8 @@ impl Engine {
                             view: scene.camera.view,
                             projection: cgmath::Matrix4::from(scene.camera.projection),
                         };
-                        let mut alignment = util::Align::new(
-                            pipeline.vertex_shader.uniform_mvp_buffers[current_frame]
-                                .data_ptr
-                                .unwrap(),
-                            align_of::<f32>() as u64,
-                            pipeline.vertex_shader.uniform_mvp_buffers[current_frame]
-                                .memory_requirements
-                                .size,
-                        );
-                        alignment.copy_from_slice(&[mvp]);
-                        pipeline
-                            .vertex_shader
-                            .vertex_buffer
-                            .bind(self, current_frame);
-                        pipeline
-                            .vertex_shader
-                            .index_buffer
-                            .bind(self, current_frame);
+                        object.mesh.update_uniforms(mvp, current_frame);
+                        object.mesh.bind_buffers(self, current_frame);
                         device.cmd_bind_descriptor_sets(
                             draw_command_buffer,
                             vk::PipelineBindPoint::GRAPHICS,
@@ -521,7 +486,7 @@ impl Engine {
                         );
                         device.cmd_draw_indexed(
                             draw_command_buffer,
-                            pipeline.vertex_shader.index_buffer.index_count,
+                            object.mesh.get_index_count(),
                             1,
                             0,
                             0,

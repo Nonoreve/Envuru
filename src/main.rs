@@ -30,7 +30,6 @@ fn main() {
         far: 10.0,
     };
     let camera = Camera { view, projection };
-
     let rectangle_vertices = [
         Vertex {
             pos: cgmath::vec4(-1.0, -1.0, 0.0, 1.0),
@@ -53,23 +52,28 @@ fn main() {
     let rectangle_mesh = Rc::new(Mesh::new(
         rectangle_vertices.into(),
         rectangle_indices.into(),
+        include_bytes!("../target/vert.spv"),
+        include_bytes!("../target/frag.spv"),
     ));
-    let model = cgmath::Decomposed {
+    let demo_model = cgmath::Decomposed {
         scale: 1.0,
         rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(0.1)),
         disp: cgmath::vec3(0.0, 0.0, 0.0),
     };
-    let object = Object {
+    let charlie = Rc::new(Material::new(vec![
+        image::load_from_memory(include_bytes!("../resources/textures/charlie.jpg")).unwrap(),
+    ]));
+    let demo = Object {
         mesh: Rc::clone(&rectangle_mesh),
-        model,
-        material: Material {},
+        model: demo_model,
+        material: Rc::clone(&charlie),
     };
-
     let meshes = vec![rectangle_mesh];
     let start_scene = Scene {
         camera,
-        objects: vec![object],
+        objects: vec![demo],
         meshes,
+        materials: vec![charlie],
     };
     let scene_handle = engine_builder.register_scene(start_scene);
     engine_builder.start(scene_handle);

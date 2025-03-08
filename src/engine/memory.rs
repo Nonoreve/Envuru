@@ -13,6 +13,7 @@ pub enum DataOrganization {
     Smart,
 }
 
+#[derive(Debug)]
 pub struct GraphicsBuffer {
     memory: vk::DeviceMemory,
     buffer: vk::Buffer,
@@ -108,11 +109,12 @@ impl GraphicsBuffer {
     }
 }
 
+#[derive(Debug)]
 pub struct VertexBuffer(GraphicsBuffer);
 
 impl VertexBuffer {
-    pub fn new(engine: &Engine, vertices: Box<[Vertex]>, style: DataOrganization) -> Self {
-        let source_size = size_of_val(&*vertices);
+    pub fn new(engine: &Engine, vertices: &[Vertex], style: DataOrganization) -> Self {
+        let source_size = size_of_val(vertices.as_ref());
         let mut create_info = vk::BufferCreateInfo {
             size: source_size as vk::DeviceSize,
             usage: vk::BufferUsageFlags::TRANSFER_SRC,
@@ -128,7 +130,7 @@ impl VertexBuffer {
                 align_of::<f32>() as u64,
                 memory_requirements.size,
             );
-            alignment.copy_from_slice(&*vertices);
+            alignment.copy_from_slice(vertices.as_ref());
             engine.device.unmap_memory(staging_buffer.memory);
             create_info = vk::BufferCreateInfo {
                 size: source_size as vk::DeviceSize,
@@ -158,14 +160,15 @@ impl VertexBuffer {
     }
 }
 
+#[derive(Debug)]
 pub struct IndexBuffer {
     graphics_buffer: GraphicsBuffer,
     pub index_count: u32,
 }
 
 impl IndexBuffer {
-    pub fn new(engine: &Engine, indices: Box<[u32]>) -> Self {
-        let source_size = size_of_val(&*indices);
+    pub fn new(engine: &Engine, indices: &[u32]) -> Self {
+        let source_size = size_of_val(indices.as_ref());
         let mut create_info = vk::BufferCreateInfo {
             size: source_size as vk::DeviceSize,
             usage: vk::BufferUsageFlags::TRANSFER_SRC,
@@ -180,7 +183,7 @@ impl IndexBuffer {
                 align_of::<u32>() as u64,
                 memory_requirements.size,
             );
-            alignment.copy_from_slice(&*indices);
+            alignment.copy_from_slice(indices.as_ref());
             engine.device.unmap_memory(staging_buffer.memory);
             create_info = vk::BufferCreateInfo {
                 size: source_size as vk::DeviceSize,
@@ -213,6 +216,7 @@ impl IndexBuffer {
     }
 }
 
+#[derive(Debug)]
 pub struct UniformBuffer {
     graphics_buffer: GraphicsBuffer,
     pub descriptor: vk::DescriptorBufferInfo,
@@ -249,6 +253,7 @@ impl UniformBuffer {
     }
 }
 
+#[derive(Debug)]
 struct ImageBuffer {
     image_view: vk::ImageView,
     memory: vk::DeviceMemory,
@@ -265,12 +270,13 @@ impl ImageBuffer {
     }
 }
 
+#[derive(Debug)]
 pub struct Texture {
     image_buffer: ImageBuffer,
 }
 
 impl Texture {
-    pub fn new(engine: &Engine, image: image::RgbaImage) -> Self {
+    pub fn new(engine: &Engine, image: &image::RgbaImage) -> Self {
         let image_data = image.as_raw();
         let create_info = vk::BufferCreateInfo {
             size: (size_of::<u8>() * image_data.len()) as u64,
@@ -302,7 +308,6 @@ impl Texture {
             );
             alignment.copy_from_slice(image_data);
             engine.device.unmap_memory(staging_buffer.memory);
-            drop(image);
             let vk_image = engine.device.create_image(&create_info, None).unwrap();
             let memory_requirements = engine.device.get_image_memory_requirements(vk_image);
             let memory_index = Engine::find_memorytype_index(
@@ -423,6 +428,19 @@ impl Texture {
         }
     }
 
+    // TODO non staged constructor when not enough memory
+    // pub fn load_image(&self, image: &image::RgbaImage) {
+    //     let image_data = image.as_raw();
+    //     unsafe {
+    //         let mut alignment = util::Align::new(
+    //             self.data_ptr.unwrap(),
+    //             align_of::<u8>() as u64,
+    //             self.memory_requirements.size,
+    //         );
+    //         alignment.copy_from_slice(image_data);
+    //     }
+    // }
+
     pub fn get_image_view(&self) -> vk::ImageView {
         self.image_buffer.image_view
     }
@@ -444,7 +462,6 @@ impl DepthImage {
         present_queue: vk::Queue,
     ) -> Self {
         let depth_image_create_info = vk::ImageCreateInfo {
-            flags: Default::default(), // TODO check for optis
             image_type: vk::ImageType::TYPE_2D,
             format: vk::Format::D16_UNORM,
             extent: swapchain.surface_resolution.into(),
@@ -515,7 +532,6 @@ impl DepthImage {
                 },
             );
             let create_info = vk::ImageViewCreateInfo {
-                flags: Default::default(), // TODO see first ImageViewCreateInfo and apply to other ones if necessary
                 image: vk_image,
                 view_type: vk::ImageViewType::TYPE_2D,
                 format: depth_image_create_info.format,

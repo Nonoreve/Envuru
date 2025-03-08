@@ -1,9 +1,10 @@
-use std::io::Cursor;
 use std::mem;
 
-use crate::engine::memory::{DataOrganization, IndexBuffer, Texture, UniformBuffer, VertexBuffer};
+use ash::vk;
+
+use crate::engine::memory::{DataOrganization, IndexBuffer, UniformBuffer, VertexBuffer};
+use crate::engine::scene::Material;
 use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT};
-use ash::{util, vk};
 
 #[macro_export]
 macro_rules! offset_of {
@@ -30,11 +31,7 @@ pub struct Vertex {
     pub uv: cgmath::Vector2<f32>,
 }
 
-pub struct VertexShaderInputs {
-    pub vertices: Box<[Vertex]>,
-    pub indices: Box<[u32]>,
-}
-
+#[derive(Debug)]
 pub struct VertexShader {
     pub module: vk::ShaderModule,
     pub input_binding_descriptions: Vec<vk::VertexInputBindingDescription>,
@@ -47,13 +44,13 @@ pub struct VertexShader {
 impl VertexShader {
     pub fn new(
         engine: &Engine,
-        vertex_shader_bytes: &[u8],
-        vertex_shader_inputs: VertexShaderInputs,
+        spv_data: &Vec<u32>,
+        vertices: &[Vertex],
+        indices: &[u32],
         descriptor_sets: &Vec<vk::DescriptorSet>,
+        style: DataOrganization,
     ) -> Self {
-        let mut spv_data = Cursor::new(vertex_shader_bytes);
-        let spv_data = util::read_spv(&mut spv_data).unwrap();
-        let vertex_shader_info = vk::ShaderModuleCreateInfo::default().code(&spv_data);
+        let vertex_shader_info = vk::ShaderModuleCreateInfo::default().code(spv_data);
         let input_binding_descriptions = vec![vk::VertexInputBindingDescription {
             binding: 0,
             stride: size_of::<Vertex>() as u32,
@@ -73,12 +70,8 @@ impl VertexShader {
                 offset: offset_of!(Vertex, uv) as u32,
             },
         ];
-        let vertex_buffer = VertexBuffer::new(
-            engine,
-            vertex_shader_inputs.vertices,
-            DataOrganization::ObjectMajor,
-        );
-        let index_buffer = IndexBuffer::new(engine, vertex_shader_inputs.indices);
+        let vertex_buffer = VertexBuffer::new(engine, vertices, DataOrganization::ObjectMajor);
+        let index_buffer = IndexBuffer::new(engine, indices);
         let uniform_mvp_buffers: Vec<UniformBuffer> = (0..MAX_FRAMES_IN_FLIGHT)
             .map(|_| UniformBuffer::new::<MvpUbo>(engine))
             .collect();
@@ -111,7 +104,13 @@ impl VertexShader {
         }
     }
 
-    pub fn delete(&mut self, engine: &Engine) {
+    pub fn get_vertex_input_state_info(&self) -> vk::PipelineVertexInputStateCreateInfo {
+        vk::PipelineVertexInputStateCreateInfo::default()
+            .vertex_attribute_descriptions(&self.input_attribute_descriptions)
+            .vertex_binding_descriptions(&self.input_binding_descriptions)
+    }
+
+    pub fn delete(&self, engine: &Engine) {
         unsafe {
             engine.device.destroy_shader_module(self.module, None);
             for uniform_mvp_buffer in self.uniform_mvp_buffers.iter() {
@@ -123,25 +122,19 @@ impl VertexShader {
     }
 }
 
-pub struct FragmentShaderInputs {
-    pub(crate) image: image::DynamicImage,
-}
-
+#[derive(Debug)]
 pub struct FragmentShader {
     pub module: vk::ShaderModule,
     sampler: vk::Sampler,
-    texture: Texture,
 }
 
 impl FragmentShader {
     pub fn new(
         engine: &Engine,
-        fragment_shader_bytes: &[u8],
-        fragment_shader_inputs: FragmentShaderInputs,
+        spv_data: &Vec<u32>,
+        material: &Material,
         descriptor_sets: &Vec<vk::DescriptorSet>,
     ) -> Self {
-        let image = fragment_shader_inputs.image.to_rgba8();
-        let texture = Texture::new(engine, image);
         let sampler_info = vk::SamplerCreateInfo {
             flags: Default::default(),
             mag_filter: vk::Filter::LINEAR,
@@ -164,13 +157,7 @@ impl FragmentShader {
 
         unsafe {
             let sampler = engine.device.create_sampler(&sampler_info, None).unwrap();
-            let tex_descriptors: Vec<vk::DescriptorImageInfo> = (0..MAX_FRAMES_IN_FLIGHT)
-                .map(|_| vk::DescriptorImageInfo {
-                    image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                    image_view: texture.get_image_view(),
-                    sampler,
-                })
-                .collect();
+            let tex_descriptors = material.get_descriptor_image_infos(sampler, 0);
 
             for i in 0..MAX_FRAMES_IN_FLIGHT {
                 let write_desc_sets = [vk::WriteDescriptorSet {
@@ -184,10 +171,7 @@ impl FragmentShader {
                 }];
                 engine.device.update_descriptor_sets(&write_desc_sets, &[]);
             }
-            let mut frag_spv_file = Cursor::new(fragment_shader_bytes);
-            let frag_code = util::read_spv(&mut frag_spv_file)
-                .expect("Failed to read fragment shader spv file");
-            let frag_shader_info = vk::ShaderModuleCreateInfo::default().code(&frag_code);
+            let frag_shader_info = vk::ShaderModuleCreateInfo::default().code(spv_data);
             let fragment_shader_module = engine
                 .device
                 .create_shader_module(&frag_shader_info, None)
@@ -195,15 +179,13 @@ impl FragmentShader {
             Self {
                 module: fragment_shader_module,
                 sampler,
-                texture,
             }
         }
     }
 
-    pub fn delete(&mut self, engine: &Engine) {
+    pub fn delete(&self, engine: &Engine) {
         unsafe {
             engine.device.destroy_shader_module(self.module, None);
-            self.texture.delete(engine);
             engine.device.destroy_sampler(self.sampler, None);
         }
     }

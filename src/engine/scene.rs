@@ -1,6 +1,12 @@
-use crate::engine::shader::{FragmentShader, Vertex, VertexShader};
-use std::cell::OnceCell;
+use std::cell::{OnceCell, RefCell};
+use std::io::Cursor;
 use std::rc::Rc;
+
+use ash::{util, vk};
+
+use crate::engine::memory::{DataOrganization, Texture};
+use crate::engine::shader::{FragmentShader, MvpUbo, Vertex, VertexShader};
+use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT};
 
 pub struct Camera {
     pub view: cgmath::Matrix4<f32>,
@@ -10,31 +16,179 @@ pub struct Camera {
 pub struct Mesh {
     vertex_shader: OnceCell<VertexShader>,
     fragment_shader: OnceCell<FragmentShader>,
-    vertices: Vec<Vertex>,
-    indices: Vec<u32>,
+    vertices: RefCell<Vec<Vertex>>,
+    indices: RefCell<Vec<u32>>,
+    vertex_spv: RefCell<Vec<u32>>,
+    fragment_spv: RefCell<Vec<u32>>,
 }
 
 impl Mesh {
-    pub fn new(vertices: Vec<Vertex>, indices: Vec<u32>) -> Self {
+    pub fn new(
+        vertices: Vec<Vertex>,
+        indices: Vec<u32>,
+        vertex_shader_bytes: &[u8],
+        framgent_shader_bytes: &[u8],
+    ) -> Self {
+        // TODO support on-the-fly shader compil
+        let mut spv_data = Cursor::new(vertex_shader_bytes);
+        let vertex_spv = RefCell::new(util::read_spv(&mut spv_data).unwrap());
+        let mut spv_data = Cursor::new(framgent_shader_bytes);
+        let fragment_spv = RefCell::new(util::read_spv(&mut spv_data).unwrap());
+        let vertices_cell = RefCell::new(vertices);
+        let indices_cell = RefCell::new(indices);
         Self {
             vertex_shader: OnceCell::new(),
             fragment_shader: OnceCell::new(),
-            vertices,
-            indices,
+            vertices: vertices_cell,
+            indices: indices_cell,
+            vertex_spv,
+            fragment_spv,
+        }
+    }
+
+    pub fn load_shaders(
+        &self,
+        engine: &Engine,
+        material: &Material,
+        descriptor_sets: &Vec<vk::DescriptorSet>,
+    ) {
+        let vertex_shader = VertexShader::new(
+            &engine,
+            &self.vertex_spv.borrow(),
+            self.vertices.borrow().as_slice(),
+            self.indices.borrow().as_slice(),
+            descriptor_sets,
+            DataOrganization::ObjectMajor,
+        );
+        let fragment_shader = FragmentShader::new(
+            &engine,
+            &self.fragment_spv.borrow(),
+            material,
+            descriptor_sets,
+        );
+        self.vertex_shader.set(vertex_shader).unwrap();
+        self.fragment_shader.set(fragment_shader).unwrap();
+        self.vertices.borrow_mut().clear();
+        self.indices.borrow_mut().clear();
+        self.vertex_spv.borrow_mut().clear();
+        self.fragment_spv.borrow_mut().clear();
+    }
+
+    pub fn update_uniforms(&self, mvp: MvpUbo, current_frame: usize) {
+        unsafe {
+            let mut alignment = util::Align::new(
+                self.vertex_shader.get().unwrap().uniform_mvp_buffers[current_frame]
+                    .data_ptr
+                    .unwrap(),
+                align_of::<f32>() as u64,
+                self.vertex_shader.get().unwrap().uniform_mvp_buffers[current_frame]
+                    .memory_requirements
+                    .size,
+            );
+            alignment.copy_from_slice(&[mvp]);
+        }
+    }
+
+    pub fn bind_buffers(&self, engine: &Engine, current_frame: usize) {
+        unsafe {
+            self.vertex_shader
+                .get()
+                .unwrap()
+                .vertex_buffer
+                .bind(engine, current_frame);
+            self.vertex_shader
+                .get()
+                .unwrap()
+                .index_buffer
+                .bind(engine, current_frame);
+        }
+    }
+
+    pub fn get_modules(&self) -> (vk::ShaderModule, vk::ShaderModule) {
+        (
+            self.vertex_shader.get().unwrap().module,
+            self.fragment_shader.get().unwrap().module,
+        )
+    }
+
+    pub fn get_vertex_input_state_info(&self) -> vk::PipelineVertexInputStateCreateInfo {
+        self.vertex_shader
+            .get()
+            .unwrap()
+            .get_vertex_input_state_info()
+    }
+
+    pub fn get_index_count(&self) -> u32 {
+        self.vertex_shader.get().unwrap().index_buffer.index_count
+    }
+
+    pub fn delete(&self, engine: &Engine) {
+        self.vertex_shader.get().unwrap().delete(&engine);
+        self.fragment_shader.get().unwrap().delete(&engine);
+    }
+}
+
+pub struct Material {
+    textures: RefCell<Vec<Texture>>,
+    images: Vec<image::DynamicImage>,
+}
+
+impl Material {
+    pub fn new(images: Vec<image::DynamicImage>) -> Self {
+        Self {
+            textures: RefCell::new(Vec::new()),
+            images,
+        }
+    }
+
+    pub fn load_textures(&self, engine: &Engine) {
+        for image in self.images.iter() {
+            let image = image.to_rgba8();
+            let texture = Texture::new(engine, &image);
+            drop(image);
+            self.textures.borrow_mut().push(texture)
+        }
+    }
+
+    pub fn get_descriptor_image_infos(
+        &self,
+        sampler: vk::Sampler,
+        index: usize,
+    ) -> Vec<vk::DescriptorImageInfo> {
+        (0..MAX_FRAMES_IN_FLIGHT)
+            .map(|_| vk::DescriptorImageInfo {
+                image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                image_view: self.textures.borrow().get(index).unwrap().get_image_view(),
+                sampler,
+            })
+            .collect()
+    }
+
+    pub fn delete(&self, engine: &Engine) {
+        unsafe {
+            for texture in self.textures.borrow().iter() {
+                texture.delete(engine);
+            }
         }
     }
 }
 
-pub struct Material {}
-
 pub struct Object {
     pub mesh: Rc<Mesh>,
     pub model: cgmath::Decomposed<cgmath::Vector3<f32>, cgmath::Quaternion<f32>>,
-    pub material: Material,
+    pub material: Rc<Material>,
+}
+
+impl Object {
+    pub fn delete(&mut self) {
+        drop(&mut self.mesh);
+        drop(&mut self.material);
+    }
 }
 
 pub struct Scene {
     pub camera: Camera,
     pub meshes: Vec<Rc<Mesh>>,
+    pub materials: Vec<Rc<Material>>,
     pub objects: Vec<Object>,
 }

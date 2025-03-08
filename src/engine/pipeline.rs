@@ -1,19 +1,16 @@
+use ash::vk;
+use std::borrow::Borrow;
+use std::rc::Rc;
 use std::{ffi, mem};
 
-use ash::vk;
-
-use crate::engine::shader::{
-    FragmentShader, FragmentShaderInputs, VertexShader, VertexShaderInputs,
-};
+use crate::engine::scene::{Mesh, Object};
 use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT};
 
 pub(crate) struct Pipeline {
     pub renderpass: vk::RenderPass,
     pub framebuffers: mem::ManuallyDrop<Vec<vk::Framebuffer>>,
     pub graphics_pipelines: mem::ManuallyDrop<Vec<vk::Pipeline>>,
-    pub vertex_shader: VertexShader,
     pub pipeline_layout: vk::PipelineLayout,
-    pub fragment_shader: FragmentShader,
     pub frames: u64,
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
@@ -22,13 +19,7 @@ pub(crate) struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn new(
-        engine: &Engine,
-        vertex_shader_bytes: &[u8],
-        vertex_shader_inputs: VertexShaderInputs,
-        fragment_shader_bytes: &[u8],
-        fragment_shader_inputs: FragmentShaderInputs,
-    ) -> Self {
+    pub fn new(engine: &Engine, objects: &mut Vec<Object>) -> Self {
         let renderpass_attachments = [
             vk::AttachmentDescription {
                 format: engine.surface_format.format,
@@ -144,18 +135,6 @@ impl Pipeline {
                 .device
                 .allocate_descriptor_sets(&desc_alloc_info)
                 .unwrap();
-            let fragment_shader = FragmentShader::new(
-                &engine,
-                fragment_shader_bytes,
-                fragment_shader_inputs,
-                &descriptor_sets,
-            );
-            let vertex_shader = VertexShader::new(
-                &engine,
-                vertex_shader_bytes,
-                vertex_shader_inputs,
-                &descriptor_sets,
-            );
             let layout_create_info =
                 vk::PipelineLayoutCreateInfo::default().set_layouts(&desc_set_layouts[..1]);
             let pipeline_layout = engine
@@ -163,24 +142,33 @@ impl Pipeline {
                 .create_pipeline_layout(&layout_create_info, None)
                 .unwrap();
             let shader_entry_name = ffi::CStr::from_bytes_with_nul_unchecked(b"main\0");
+            for object in objects.iter_mut() {
+                object.material.load_textures(engine);
+                object.mesh.load_shaders(
+                    engine,
+                    Rc::borrow(&object.material),
+                    &descriptor_sets,
+                )
+            }
+            let modules = objects.get(0).unwrap().mesh.get_modules();
             let shader_stage_create_infos = [
                 vk::PipelineShaderStageCreateInfo {
-                    module: vertex_shader.module,
+                    s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
+                    module: modules.0,
                     p_name: shader_entry_name.as_ptr(),
                     stage: vk::ShaderStageFlags::VERTEX,
                     ..Default::default()
                 },
                 vk::PipelineShaderStageCreateInfo {
                     s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
-                    module: fragment_shader.module,
+                    module: modules.1,
                     p_name: shader_entry_name.as_ptr(),
                     stage: vk::ShaderStageFlags::FRAGMENT,
                     ..Default::default()
                 },
             ];
-            let vertex_input_state_info = vk::PipelineVertexInputStateCreateInfo::default()
-                .vertex_attribute_descriptions(&vertex_shader.input_attribute_descriptions)
-                .vertex_binding_descriptions(&vertex_shader.input_binding_descriptions);
+            let vertex_input_state_info =
+                objects.get(0).unwrap().mesh.get_vertex_input_state_info();
             let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo {
                 topology: vk::PrimitiveTopology::TRIANGLE_LIST,
                 ..Default::default()
@@ -259,8 +247,6 @@ impl Pipeline {
                 renderpass,
                 framebuffers: mem::ManuallyDrop::new(framebuffers),
                 graphics_pipelines: mem::ManuallyDrop::new(graphics_pipelines),
-                vertex_shader,
-                fragment_shader,
                 pipeline_layout,
                 frames: 0,
                 descriptor_set_layout,
@@ -305,7 +291,7 @@ impl Pipeline {
         }
     }
 
-    pub fn delete(&mut self, engine: &Engine) {
+    pub fn delete(&mut self, engine: &Engine, meshes: &mut Vec<Rc<Mesh>>) {
         unsafe {
             engine.device.device_wait_idle().unwrap();
             let graphics_pipelines = mem::ManuallyDrop::take(&mut self.graphics_pipelines);
@@ -315,9 +301,9 @@ impl Pipeline {
             engine
                 .device
                 .destroy_pipeline_layout(self.pipeline_layout, None);
-            self.fragment_shader.delete(&engine);
-
-            self.vertex_shader.delete(&engine);
+            for mesh in meshes.iter() {
+                mesh.delete(engine);
+            }
             engine
                 .device
                 .destroy_descriptor_set_layout(self.descriptor_set_layout, None);
