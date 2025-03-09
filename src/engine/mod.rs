@@ -3,7 +3,6 @@ use std::{borrow, ffi, mem, process, sync};
 use ash::ext::debug_utils;
 use ash::khr::surface;
 use ash::{khr, vk};
-use cgmath::Rotation3;
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::{application, dpi, event, event_loop, window};
 
@@ -46,8 +45,8 @@ impl<'a> application::ApplicationHandler for WindowHandler {
                 &self.name,
                 event_loop,
             );
-            let objects = &mut self.scenes.get_mut(self.starting_scene).unwrap().objects;
-            self.pipeline = Some(Pipeline::new(&engine, objects));
+            let scene = self.scenes.get_mut(self.starting_scene).unwrap();
+            self.pipeline = Some(Pipeline::new(&engine, scene));
             self.engine = Some(engine);
         }
     }
@@ -110,10 +109,10 @@ impl WindowHandler {
             self.pipeline
                 .as_mut()
                 .unwrap()
-                .delete(self.engine.as_ref().unwrap(), scene.meshes.as_mut());
-            for material in scene.materials.iter_mut() {
-                material.delete(self.engine.as_ref().unwrap())
-            }
+                .delete(self.engine.as_ref().unwrap(), scene.materials.as_mut());
+            // for material in scene.materials.iter_mut() {
+            //     material.delete(self.engine.as_ref().unwrap())
+            // }
         }
     }
 }
@@ -385,7 +384,7 @@ impl Engine {
                         .unwrap()
                 })
                 .collect();
-            let limits = instance.get_physical_device_properties(pdevice).limits;
+            // let limits = instance.get_physical_device_properties(pdevice).limits;
             // println!("limits={:#?}", limits); TODO get max number of images allowed on gpu
             Self {
                 instance,
@@ -468,25 +467,25 @@ impl Engine {
                     );
                     device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
                     device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
-                    for object in &scene.objects {
+                    for (i, object) in scene.objects.iter().enumerate() {
                         let mvp = MvpUbo {
                             model: cgmath::Matrix4::from(object.model),
                             view: scene.camera.view,
                             projection: cgmath::Matrix4::from(scene.camera.projection),
                         };
-                        object.mesh.update_uniforms(mvp, current_frame);
-                        object.mesh.bind_buffers(self, current_frame);
+                        object.material.update_uniforms(mvp, current_frame * scene.objects.len() + i);
+                        object.material.bind_buffers(self, current_frame);
                         device.cmd_bind_descriptor_sets(
                             draw_command_buffer,
                             vk::PipelineBindPoint::GRAPHICS,
                             pipeline.pipeline_layout,
                             0,
-                            &[pipeline.descriptor_sets[current_frame]],
+                            &[pipeline.descriptor_sets[current_frame * scene.objects.len() + i]],
                             &[],
                         );
                         device.cmd_draw_indexed(
                             draw_command_buffer,
-                            object.mesh.get_index_count(),
+                            object.material.get_index_count(),
                             1,
                             0,
                             0,

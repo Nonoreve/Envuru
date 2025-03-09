@@ -14,131 +14,77 @@ pub struct Camera {
 }
 
 pub struct Mesh {
-    vertex_shader: OnceCell<VertexShader>,
-    fragment_shader: OnceCell<FragmentShader>,
     vertices: RefCell<Vec<Vertex>>,
     indices: RefCell<Vec<u32>>,
-    vertex_spv: RefCell<Vec<u32>>,
-    fragment_spv: RefCell<Vec<u32>>,
 }
 
 impl Mesh {
+    pub fn new(vertices: Vec<Vertex>, indices: Vec<u32>) -> Self {
+        let vertices_cell = RefCell::new(vertices);
+        let indices_cell = RefCell::new(indices);
+        Self {
+            vertices: vertices_cell,
+            indices: indices_cell,
+        }
+    }
+}
+
+pub struct Material {
+    vertex_shader: OnceCell<VertexShader>,
+    fragment_shader: OnceCell<FragmentShader>,
+    vertex_spv: RefCell<Vec<u32>>,
+    fragment_spv: RefCell<Vec<u32>>,
+    textures: RefCell<Vec<Texture>>,
+    images: Vec<image::DynamicImage>,
+}
+
+impl Material {
     pub fn new(
-        vertices: Vec<Vertex>,
-        indices: Vec<u32>,
         vertex_shader_bytes: &[u8],
         framgent_shader_bytes: &[u8],
+        images: Vec<image::DynamicImage>,
     ) -> Self {
         // TODO support on-the-fly shader compil
         let mut spv_data = Cursor::new(vertex_shader_bytes);
         let vertex_spv = RefCell::new(util::read_spv(&mut spv_data).unwrap());
         let mut spv_data = Cursor::new(framgent_shader_bytes);
         let fragment_spv = RefCell::new(util::read_spv(&mut spv_data).unwrap());
-        let vertices_cell = RefCell::new(vertices);
-        let indices_cell = RefCell::new(indices);
         Self {
             vertex_shader: OnceCell::new(),
             fragment_shader: OnceCell::new(),
-            vertices: vertices_cell,
-            indices: indices_cell,
             vertex_spv,
             fragment_spv,
+            textures: RefCell::new(Vec::new()),
+            images,
         }
     }
 
     pub fn load_shaders(
         &self,
         engine: &Engine,
-        material: &Material,
+        mesh: &Mesh,
         descriptor_sets: &Vec<vk::DescriptorSet>,
     ) {
+        assert!(
+            mesh.vertices.borrow().len() > 0,
+            "Shaders already loaded for this mesh (vertices empty)"
+        );
         let vertex_shader = VertexShader::new(
             &engine,
             &self.vertex_spv.borrow(),
-            self.vertices.borrow().as_slice(),
-            self.indices.borrow().as_slice(),
+            mesh.vertices.borrow().as_slice(),
+            mesh.indices.borrow().as_slice(),
             descriptor_sets,
             DataOrganization::ObjectMajor,
         );
-        let fragment_shader = FragmentShader::new(
-            &engine,
-            &self.fragment_spv.borrow(),
-            material,
-            descriptor_sets,
-        );
+        let fragment_shader =
+            FragmentShader::new(&engine, &self.fragment_spv.borrow(), self, descriptor_sets);
         self.vertex_shader.set(vertex_shader).unwrap();
         self.fragment_shader.set(fragment_shader).unwrap();
-        self.vertices.borrow_mut().clear();
-        self.indices.borrow_mut().clear();
+        mesh.vertices.borrow_mut().clear();
+        mesh.indices.borrow_mut().clear();
         self.vertex_spv.borrow_mut().clear();
         self.fragment_spv.borrow_mut().clear();
-    }
-
-    pub fn update_uniforms(&self, mvp: MvpUbo, current_frame: usize) {
-        unsafe {
-            let mut alignment = util::Align::new(
-                self.vertex_shader.get().unwrap().uniform_mvp_buffers[current_frame]
-                    .data_ptr
-                    .unwrap(),
-                align_of::<f32>() as u64,
-                self.vertex_shader.get().unwrap().uniform_mvp_buffers[current_frame]
-                    .memory_requirements
-                    .size,
-            );
-            alignment.copy_from_slice(&[mvp]);
-        }
-    }
-
-    pub fn bind_buffers(&self, engine: &Engine, current_frame: usize) {
-        unsafe {
-            self.vertex_shader
-                .get()
-                .unwrap()
-                .vertex_buffer
-                .bind(engine, current_frame);
-            self.vertex_shader
-                .get()
-                .unwrap()
-                .index_buffer
-                .bind(engine, current_frame);
-        }
-    }
-
-    pub fn get_modules(&self) -> (vk::ShaderModule, vk::ShaderModule) {
-        (
-            self.vertex_shader.get().unwrap().module,
-            self.fragment_shader.get().unwrap().module,
-        )
-    }
-
-    pub fn get_vertex_input_state_info(&self) -> vk::PipelineVertexInputStateCreateInfo {
-        self.vertex_shader
-            .get()
-            .unwrap()
-            .get_vertex_input_state_info()
-    }
-
-    pub fn get_index_count(&self) -> u32 {
-        self.vertex_shader.get().unwrap().index_buffer.index_count
-    }
-
-    pub fn delete(&self, engine: &Engine) {
-        self.vertex_shader.get().unwrap().delete(&engine);
-        self.fragment_shader.get().unwrap().delete(&engine);
-    }
-}
-
-pub struct Material {
-    textures: RefCell<Vec<Texture>>,
-    images: Vec<image::DynamicImage>,
-}
-
-impl Material {
-    pub fn new(images: Vec<image::DynamicImage>) -> Self {
-        Self {
-            textures: RefCell::new(Vec::new()),
-            images,
-        }
     }
 
     pub fn load_textures(&self, engine: &Engine) {
@@ -164,11 +110,57 @@ impl Material {
             .collect()
     }
 
-    pub fn delete(&self, engine: &Engine) {
+    pub fn update_uniforms(&self, mvp: MvpUbo, current_frame: usize) {
         unsafe {
-            for texture in self.textures.borrow().iter() {
-                texture.delete(engine);
-            }
+            let mut alignment = util::Align::new(
+                self.vertex_shader.get().unwrap().uniform_mvp_buffers[current_frame]
+                    .data_ptr
+                    .unwrap(),
+                align_of::<f32>() as u64,
+                self.vertex_shader.get().unwrap().uniform_mvp_buffers[current_frame]
+                    .memory_requirements
+                    .size,
+            );
+            alignment.copy_from_slice(&[mvp]);
+        }
+    }
+
+    pub fn bind_buffers(&self, engine: &Engine, current_frame: usize) {
+        self.vertex_shader
+            .get()
+            .unwrap()
+            .vertex_buffer
+            .bind(engine, current_frame);
+        self.vertex_shader
+            .get()
+            .unwrap()
+            .index_buffer
+            .bind(engine, current_frame);
+    }
+
+    pub fn get_modules(&self) -> (vk::ShaderModule, vk::ShaderModule) {
+        (
+            self.vertex_shader.get().unwrap().module,
+            self.fragment_shader.get().unwrap().module,
+        )
+    }
+
+    pub fn get_vertex_input_state_info(&self) -> vk::PipelineVertexInputStateCreateInfo {
+        self.vertex_shader
+            .get()
+            .unwrap()
+            .get_vertex_input_state_info()
+    }
+
+    pub fn get_index_count(&self) -> u32 {
+        self.vertex_shader.get().unwrap().index_buffer.index_count
+    }
+
+    pub fn delete(&self, engine: &Engine) {
+        self.vertex_shader.get().unwrap().delete(&engine);
+        self.fragment_shader.get().unwrap().delete(&engine);
+        for texture in self.textures.borrow().iter() {
+            texture.delete(engine);
         }
     }
 }
@@ -181,8 +173,8 @@ pub struct Object {
 
 impl Object {
     pub fn delete(&mut self) {
-        drop(&mut self.mesh);
-        drop(&mut self.material);
+        let _ = &mut self.mesh;
+        let _ = &mut self.material;
     }
 }
 

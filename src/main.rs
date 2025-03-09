@@ -1,5 +1,6 @@
-use cgmath::{One, Rotation3};
 use std::rc::Rc;
+
+use cgmath::Rotation3;
 
 use crate::engine::pipeline::Pipeline;
 use crate::engine::scene::{Camera, Material, Mesh, Object, Scene};
@@ -8,12 +9,14 @@ use crate::engine::shader::Vertex;
 mod engine;
 
 fn update(scene: &mut Scene, runtime_data: &mut Pipeline) {
-    let model = cgmath::Decomposed {
-        scale: 1.0,
-        rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(runtime_data.frames as f32 * 0.1)),
-        disp: cgmath::vec3(0.0, 0.0, 0.0),
-    };
-    scene.objects[0].model = model;
+    // let model = cgmath::Decomposed {
+    //     scale: 1.0,
+    //     rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(runtime_data.frames as f32 * 0.1)),
+    //     disp: cgmath::vec3(0.0, 0.0, 0.0),
+    // };
+    // scene.objects[0].model = model;
+    scene.objects[0].model.rot =
+        cgmath::Quaternion::from_angle_z(cgmath::Deg(runtime_data.frames as f32 * 0.1));
 }
 
 fn main() {
@@ -52,26 +55,56 @@ fn main() {
     let rectangle_mesh = Rc::new(Mesh::new(
         rectangle_vertices.into(),
         rectangle_indices.into(),
-        include_bytes!("../target/vert.spv"),
-        include_bytes!("../target/frag.spv"),
     ));
     let demo_model = cgmath::Decomposed {
-        scale: 1.0,
+        scale: 0.5,
         rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(0.1)),
         disp: cgmath::vec3(0.0, 0.0, 0.0),
     };
-    let charlie = Rc::new(Material::new(vec![
-        image::load_from_memory(include_bytes!("../resources/textures/charlie.jpg")).unwrap(),
-    ]));
+    let charlie = Rc::new(Material::new(
+        include_bytes!("../target/vert.spv"),
+        include_bytes!("../target/frag.spv"),
+        vec![image::load_from_memory(include_bytes!("../resources/textures/charlie.jpg")).unwrap()],
+    ));
     let demo = Object {
         mesh: Rc::clone(&rectangle_mesh),
         model: demo_model,
         material: Rc::clone(&charlie),
     };
+    let demo_model2 = cgmath::Decomposed {
+        scale: 0.2,
+        rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(0.1)),
+        disp: cgmath::vec3(0.5, 0.5, 0.5),
+    };
+    let demo2 = Object {
+        mesh: Rc::clone(&rectangle_mesh),
+        model: demo_model2,
+        material: Rc::clone(&charlie),
+    };
+    let demo_model3 = cgmath::Decomposed {
+        scale: 0.4,
+        rot: cgmath::Quaternion::from_angle_y(cgmath::Deg(45.0)),
+        disp: cgmath::vec3(-1.0, 0.5, 0.5),
+    };
+    let demo3 = Object {
+        mesh: Rc::clone(&rectangle_mesh),
+        model: demo_model3,
+        material: Rc::clone(&charlie),
+    };
+    let demo_model4 = cgmath::Decomposed {
+        scale: 0.4,
+        rot: cgmath::Quaternion::from_angle_x(cgmath::Deg(78.0)),
+        disp: cgmath::vec3(0.0, 0.5, 1.5),
+    };
+    let demo4 = Object {
+        mesh: Rc::clone(&rectangle_mesh),
+        model: demo_model4,
+        material: Rc::clone(&charlie),
+    };
     let meshes = vec![rectangle_mesh];
     let start_scene = Scene {
         camera,
-        objects: vec![demo],
+        objects: vec![demo, demo2, demo3, demo4],
         meshes,
         materials: vec![charlie],
     };

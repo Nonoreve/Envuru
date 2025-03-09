@@ -1,9 +1,10 @@
-use ash::vk;
 use std::borrow::Borrow;
 use std::rc::Rc;
 use std::{ffi, mem};
 
-use crate::engine::scene::{Mesh, Object};
+use ash::vk;
+
+use crate::engine::scene::{Material, Scene};
 use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT};
 
 pub(crate) struct Pipeline {
@@ -19,7 +20,7 @@ pub(crate) struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn new(engine: &Engine, objects: &mut Vec<Object>) -> Self {
+    pub fn new(engine: &Engine, scene: &mut Scene) -> Self {
         let renderpass_attachments = [
             vk::AttachmentDescription {
                 format: engine.surface_format.format,
@@ -111,21 +112,22 @@ impl Pipeline {
             let descriptor_sizes = [
                 vk::DescriptorPoolSize {
                     ty: vk::DescriptorType::UNIFORM_BUFFER,
-                    descriptor_count: MAX_FRAMES_IN_FLIGHT,
+                    descriptor_count: MAX_FRAMES_IN_FLIGHT * scene.objects.len() as u32,
                 },
                 vk::DescriptorPoolSize {
                     ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    descriptor_count: MAX_FRAMES_IN_FLIGHT,
+                    descriptor_count: MAX_FRAMES_IN_FLIGHT * scene.objects.len() as u32,
                 },
             ];
             let descriptor_pool_info = vk::DescriptorPoolCreateInfo::default()
                 .pool_sizes(&descriptor_sizes)
-                .max_sets(MAX_FRAMES_IN_FLIGHT);
+                .max_sets(MAX_FRAMES_IN_FLIGHT * scene.objects.len() as u32);
             let descriptor_pool = engine
                 .device
                 .create_descriptor_pool(&descriptor_pool_info, None)
                 .unwrap();
-            let desc_set_layouts: Vec<vk::DescriptorSetLayout> = (0..MAX_FRAMES_IN_FLIGHT)
+            let desc_set_layouts: Vec<vk::DescriptorSetLayout> = (0..MAX_FRAMES_IN_FLIGHT
+                * scene.objects.len() as u32)
                 .map(|_| descriptor_set_layout.clone())
                 .collect();
             let desc_alloc_info = vk::DescriptorSetAllocateInfo::default()
@@ -142,15 +144,15 @@ impl Pipeline {
                 .create_pipeline_layout(&layout_create_info, None)
                 .unwrap();
             let shader_entry_name = ffi::CStr::from_bytes_with_nul_unchecked(b"main\0");
-            for object in objects.iter_mut() {
-                object.material.load_textures(engine);
-                object.mesh.load_shaders(
+            for material in scene.materials.iter_mut() {
+                material.load_textures(engine);
+                material.load_shaders(
                     engine,
-                    Rc::borrow(&object.material),
+                    Rc::borrow(scene.meshes.get(0).unwrap()),
                     &descriptor_sets,
                 )
             }
-            let modules = objects.get(0).unwrap().mesh.get_modules();
+            let modules = scene.materials.get(0).unwrap().get_modules();
             let shader_stage_create_infos = [
                 vk::PipelineShaderStageCreateInfo {
                     s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -167,8 +169,11 @@ impl Pipeline {
                     ..Default::default()
                 },
             ];
-            let vertex_input_state_info =
-                objects.get(0).unwrap().mesh.get_vertex_input_state_info();
+            let vertex_input_state_info = scene
+                .materials
+                .get(0)
+                .unwrap()
+                .get_vertex_input_state_info();
             let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo {
                 topology: vk::PrimitiveTopology::TRIANGLE_LIST,
                 ..Default::default()
@@ -291,7 +296,7 @@ impl Pipeline {
         }
     }
 
-    pub fn delete(&mut self, engine: &Engine, meshes: &mut Vec<Rc<Mesh>>) {
+    pub fn delete(&mut self, engine: &Engine, materials: &mut Vec<Rc<Material>>) {
         unsafe {
             engine.device.device_wait_idle().unwrap();
             let graphics_pipelines = mem::ManuallyDrop::take(&mut self.graphics_pipelines);
@@ -301,8 +306,8 @@ impl Pipeline {
             engine
                 .device
                 .destroy_pipeline_layout(self.pipeline_layout, None);
-            for mesh in meshes.iter() {
-                mesh.delete(engine);
+            for material in materials.iter() {
+                material.delete(engine);
             }
             engine
                 .device

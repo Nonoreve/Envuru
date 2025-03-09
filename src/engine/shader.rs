@@ -2,9 +2,9 @@ use std::mem;
 
 use ash::vk;
 
+use crate::engine::Engine;
 use crate::engine::memory::{DataOrganization, IndexBuffer, UniformBuffer, VertexBuffer};
 use crate::engine::scene::Material;
-use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT};
 
 #[macro_export]
 macro_rules! offset_of {
@@ -72,22 +72,22 @@ impl VertexShader {
         ];
         let vertex_buffer = VertexBuffer::new(engine, vertices, DataOrganization::ObjectMajor);
         let index_buffer = IndexBuffer::new(engine, indices);
-        let uniform_mvp_buffers: Vec<UniformBuffer> = (0..MAX_FRAMES_IN_FLIGHT)
-            .map(|_| UniformBuffer::new::<MvpUbo>(engine))
-            .collect();
+        let mut uniform_mvp_buffers = Vec::new();
 
         unsafe {
-            for i in 0..MAX_FRAMES_IN_FLIGHT {
+            for descriptor_set in descriptor_sets {
+                let uniform_mvp_buffer = UniformBuffer::new::<MvpUbo>(engine);
                 let write_desc_sets = [vk::WriteDescriptorSet {
-                    dst_set: descriptor_sets[i as usize],
+                    dst_set: descriptor_set.clone(),
                     dst_binding: 0,
                     dst_array_element: 0,
                     descriptor_count: 1,
                     descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
-                    p_buffer_info: &uniform_mvp_buffers[i as usize].descriptor,
+                    p_buffer_info: &uniform_mvp_buffer.descriptor,
                     ..Default::default()
                 }];
                 engine.device.update_descriptor_sets(&write_desc_sets, &[]);
+                uniform_mvp_buffers.push(uniform_mvp_buffer);
             }
             let module = engine
                 .device
@@ -157,16 +157,17 @@ impl FragmentShader {
 
         unsafe {
             let sampler = engine.device.create_sampler(&sampler_info, None).unwrap();
-            let tex_descriptors = material.get_descriptor_image_infos(sampler, 0);
+            let mut tex_descriptors = material.get_descriptor_image_infos(sampler, 0);
+            let mut tex_descriptors_cycle = tex_descriptors.iter().cycle();
 
-            for i in 0..MAX_FRAMES_IN_FLIGHT {
+            for descriptor_set in descriptor_sets {
                 let write_desc_sets = [vk::WriteDescriptorSet {
-                    dst_set: descriptor_sets[i as usize],
+                    dst_set: descriptor_set.clone(),
                     dst_binding: 1,
                     dst_array_element: 0,
                     descriptor_count: 1,
                     descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    p_image_info: &tex_descriptors[i as usize],
+                    p_image_info: tex_descriptors_cycle.next().unwrap(),
                     ..Default::default()
                 }];
                 engine.device.update_descriptor_sets(&write_desc_sets, &[]);
