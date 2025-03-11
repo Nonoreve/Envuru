@@ -3,8 +3,8 @@ use std::mem;
 use ash::vk;
 
 use crate::engine::Engine;
-use crate::engine::memory::{DataOrganization, IndexBuffer, UniformBuffer, VertexBuffer};
-use crate::engine::scene::Material;
+use crate::engine::memory::{DataOrganization, UniformBuffer};
+use crate::engine::scene::Object;
 
 #[macro_export]
 macro_rules! offset_of {
@@ -36,8 +36,6 @@ pub struct VertexShader {
     pub module: vk::ShaderModule,
     pub input_binding_descriptions: Vec<vk::VertexInputBindingDescription>,
     pub input_attribute_descriptions: Vec<vk::VertexInputAttributeDescription>,
-    pub vertex_buffer: VertexBuffer,
-    pub index_buffer: IndexBuffer,
     pub uniform_mvp_buffers: Vec<UniformBuffer>,
 }
 
@@ -45,8 +43,6 @@ impl VertexShader {
     pub fn new(
         engine: &Engine,
         spv_data: &Vec<u32>,
-        vertices: &[Vertex],
-        indices: &[u32],
         descriptor_sets: &Vec<vk::DescriptorSet>,
         style: DataOrganization,
     ) -> Self {
@@ -70,8 +66,6 @@ impl VertexShader {
                 offset: offset_of!(Vertex, uv) as u32,
             },
         ];
-        let vertex_buffer = VertexBuffer::new(engine, vertices, DataOrganization::ObjectMajor);
-        let index_buffer = IndexBuffer::new(engine, indices);
         let mut uniform_mvp_buffers = Vec::new();
 
         unsafe {
@@ -97,8 +91,6 @@ impl VertexShader {
                 module,
                 input_binding_descriptions,
                 input_attribute_descriptions,
-                index_buffer,
-                vertex_buffer,
                 uniform_mvp_buffers,
             }
         }
@@ -117,8 +109,6 @@ impl VertexShader {
                 uniform_mvp_buffer.delete(engine);
             }
         }
-        self.index_buffer.delete(engine);
-        self.vertex_buffer.delete(engine);
     }
 }
 
@@ -132,7 +122,7 @@ impl FragmentShader {
     pub fn new(
         engine: &Engine,
         spv_data: &Vec<u32>,
-        material: &Material,
+        objects: &Vec<Object>,
         descriptor_sets: &Vec<vk::DescriptorSet>,
     ) -> Self {
         let sampler_info = vk::SamplerCreateInfo {
@@ -157,17 +147,20 @@ impl FragmentShader {
 
         unsafe {
             let sampler = engine.device.create_sampler(&sampler_info, None).unwrap();
-            let mut tex_descriptors = material.get_descriptor_image_infos(sampler, 0);
-            let mut tex_descriptors_cycle = tex_descriptors.iter().cycle();
 
-            for descriptor_set in descriptor_sets {
+            for (i, descriptor_set) in descriptor_sets.iter().enumerate() {
+                let tex_descriptor = objects
+                    .get(i % objects.len())
+                    .unwrap()
+                    .material
+                    .get_descriptor_image_info(sampler, 0);
                 let write_desc_sets = [vk::WriteDescriptorSet {
                     dst_set: descriptor_set.clone(),
                     dst_binding: 1,
                     dst_array_element: 0,
                     descriptor_count: 1,
                     descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    p_image_info: tex_descriptors_cycle.next().unwrap(),
+                    p_image_info: &tex_descriptor,
                     ..Default::default()
                 }];
                 engine.device.update_descriptor_sets(&write_desc_sets, &[]);

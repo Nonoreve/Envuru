@@ -1,10 +1,9 @@
-use std::borrow::Borrow;
-use std::rc::Rc;
 use std::{ffi, mem};
 
-use ash::vk;
+use ash::{util, vk};
 
-use crate::engine::scene::{Material, Scene};
+use crate::engine::scene::Scene;
+use crate::engine::shader::{FragmentShader, MvpUbo, VertexShader};
 use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT};
 
 pub(crate) struct Pipeline {
@@ -17,6 +16,8 @@ pub(crate) struct Pipeline {
     descriptor_pool: vk::DescriptorPool,
     pub descriptor_sets: Vec<vk::DescriptorSet>,
     pub aspect_ratio: f32,
+    vertex_shader: VertexShader,
+    fragment_shader: FragmentShader,
 }
 
 impl Pipeline {
@@ -143,37 +144,25 @@ impl Pipeline {
                 .device
                 .create_pipeline_layout(&layout_create_info, None)
                 .unwrap();
+            let (vertex_shader, fragment_shader) = scene.load_resources(engine, &descriptor_sets);
             let shader_entry_name = ffi::CStr::from_bytes_with_nul_unchecked(b"main\0");
-            for material in scene.materials.iter_mut() {
-                material.load_textures(engine);
-                material.load_shaders(
-                    engine,
-                    Rc::borrow(scene.meshes.get(0).unwrap()),
-                    &descriptor_sets,
-                )
-            }
-            let modules = scene.materials.get(0).unwrap().get_modules();
             let shader_stage_create_infos = [
                 vk::PipelineShaderStageCreateInfo {
                     s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
-                    module: modules.0,
+                    module: vertex_shader.module,
                     p_name: shader_entry_name.as_ptr(),
                     stage: vk::ShaderStageFlags::VERTEX,
                     ..Default::default()
                 },
                 vk::PipelineShaderStageCreateInfo {
                     s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
-                    module: modules.1,
+                    module: fragment_shader.module,
                     p_name: shader_entry_name.as_ptr(),
                     stage: vk::ShaderStageFlags::FRAGMENT,
                     ..Default::default()
                 },
             ];
-            let vertex_input_state_info = scene
-                .materials
-                .get(0)
-                .unwrap()
-                .get_vertex_input_state_info();
+            let vertex_input_state_info = vertex_shader.get_vertex_input_state_info();
             let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo {
                 topology: vk::PrimitiveTopology::TRIANGLE_LIST,
                 ..Default::default()
@@ -258,6 +247,8 @@ impl Pipeline {
                 descriptor_pool,
                 descriptor_sets,
                 aspect_ratio,
+                vertex_shader,
+                fragment_shader,
             }
         }
     }
@@ -287,6 +278,21 @@ impl Pipeline {
         }
     }
 
+    pub fn update_uniforms(&self, mvp: MvpUbo, current_frame: usize) {
+        unsafe {
+            let mut alignment = util::Align::new(
+                self.vertex_shader.uniform_mvp_buffers[current_frame]
+                    .data_ptr
+                    .unwrap(),
+                align_of::<f32>() as u64,
+                self.vertex_shader.uniform_mvp_buffers[current_frame]
+                    .memory_requirements
+                    .size,
+            );
+            alignment.copy_from_slice(&[mvp]);
+        }
+    }
+
     pub fn delete_framebuffers(&mut self, engine: &Engine) {
         unsafe {
             let framebuffers = mem::ManuallyDrop::take(&mut self.framebuffers);
@@ -296,7 +302,7 @@ impl Pipeline {
         }
     }
 
-    pub fn delete(&mut self, engine: &Engine, materials: &mut Vec<Rc<Material>>) {
+    pub fn delete(&mut self, engine: &Engine, scene: &mut Scene) {
         unsafe {
             engine.device.device_wait_idle().unwrap();
             let graphics_pipelines = mem::ManuallyDrop::take(&mut self.graphics_pipelines);
@@ -306,7 +312,12 @@ impl Pipeline {
             engine
                 .device
                 .destroy_pipeline_layout(self.pipeline_layout, None);
-            for material in materials.iter() {
+            self.vertex_shader.delete(engine);
+            for mesh in scene.meshes.iter() {
+                mesh.delete(engine);
+            }
+            self.fragment_shader.delete(engine);
+            for material in scene.materials.iter() {
                 material.delete(engine);
             }
             engine

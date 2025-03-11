@@ -402,6 +402,7 @@ impl Texture {
             let create_info = vk::ImageViewCreateInfo {
                 view_type: vk::ImageViewType::TYPE_2D,
                 format: create_info.format,
+                image: vk_image,
                 components: vk::ComponentMapping {
                     r: vk::ComponentSwizzle::R,
                     g: vk::ComponentSwizzle::G,
@@ -414,7 +415,6 @@ impl Texture {
                     layer_count: 1,
                     ..Default::default()
                 },
-                image: vk_image,
                 ..Default::default()
             };
             let image_view = engine.device.create_image_view(&create_info, None).unwrap();

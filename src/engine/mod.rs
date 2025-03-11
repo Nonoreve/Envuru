@@ -109,10 +109,7 @@ impl WindowHandler {
             self.pipeline
                 .as_mut()
                 .unwrap()
-                .delete(self.engine.as_ref().unwrap(), scene.materials.as_mut());
-            // for material in scene.materials.iter_mut() {
-            //     material.delete(self.engine.as_ref().unwrap())
-            // }
+                .delete(self.engine.as_ref().unwrap(), scene);
         }
     }
 }
@@ -473,8 +470,8 @@ impl Engine {
                             view: scene.camera.view,
                             projection: cgmath::Matrix4::from(scene.camera.projection),
                         };
-                        object.material.update_uniforms(mvp, current_frame * scene.objects.len() + i);
-                        object.material.bind_buffers(self, current_frame);
+                        pipeline.update_uniforms(mvp, current_frame * scene.objects.len() + i);
+                        object.mesh.bind_buffers(self, current_frame);
                         device.cmd_bind_descriptor_sets(
                             draw_command_buffer,
                             vk::PipelineBindPoint::GRAPHICS,
@@ -485,7 +482,7 @@ impl Engine {
                         );
                         device.cmd_draw_indexed(
                             draw_command_buffer,
-                            object.material.get_index_count(),
+                            object.mesh.get_index_count(),
                             1,
                             0,
                             0,

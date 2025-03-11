@@ -56,25 +56,26 @@ fn main() {
         rectangle_vertices.into(),
         rectangle_indices.into(),
     ));
+    let charlie = Rc::new(Material::new(vec![
+        image::load_from_memory(include_bytes!("../resources/textures/charlie.jpg")).unwrap(),
+    ]));
+    let potoo = Rc::new(Material::new(vec![
+        image::load_from_memory(include_bytes!("../resources/textures/potoo_asks.jpg")).unwrap(),
+    ]));
     let demo_model = cgmath::Decomposed {
-        scale: 0.5,
+        scale: 0.2,
         rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(0.1)),
-        disp: cgmath::vec3(0.0, 0.0, 0.0),
+        disp: cgmath::vec3(-0.5, 0.0, 0.0),
     };
-    let charlie = Rc::new(Material::new(
-        include_bytes!("../target/vert.spv"),
-        include_bytes!("../target/frag.spv"),
-        vec![image::load_from_memory(include_bytes!("../resources/textures/charlie.jpg")).unwrap()],
-    ));
     let demo = Object {
         mesh: Rc::clone(&rectangle_mesh),
         model: demo_model,
         material: Rc::clone(&charlie),
     };
     let demo_model2 = cgmath::Decomposed {
-        scale: 0.2,
+        scale: 0.4,
         rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(0.1)),
-        disp: cgmath::vec3(0.5, 0.5, 0.5),
+        disp: cgmath::vec3(-0.2, 0.2, -0.2),
     };
     let demo2 = Object {
         mesh: Rc::clone(&rectangle_mesh),
@@ -82,19 +83,19 @@ fn main() {
         material: Rc::clone(&charlie),
     };
     let demo_model3 = cgmath::Decomposed {
-        scale: 0.4,
-        rot: cgmath::Quaternion::from_angle_y(cgmath::Deg(45.0)),
-        disp: cgmath::vec3(-1.0, 0.5, 0.5),
+        scale: 0.6,
+        rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(45.0)),
+        disp: cgmath::vec3(0.2, 0.4, -0.4),
     };
     let demo3 = Object {
         mesh: Rc::clone(&rectangle_mesh),
         model: demo_model3,
-        material: Rc::clone(&charlie),
+        material: Rc::clone(&potoo),
     };
     let demo_model4 = cgmath::Decomposed {
-        scale: 0.4,
-        rot: cgmath::Quaternion::from_angle_x(cgmath::Deg(78.0)),
-        disp: cgmath::vec3(0.0, 0.5, 1.5),
+        scale: 0.8,
+        rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(78.0)),
+        disp: cgmath::vec3(0.5, 0.6, -0.6),
     };
     let demo4 = Object {
         mesh: Rc::clone(&rectangle_mesh),
@@ -102,12 +103,14 @@ fn main() {
         material: Rc::clone(&charlie),
     };
     let meshes = vec![rectangle_mesh];
-    let start_scene = Scene {
+    let start_scene = Scene::new(
+        include_bytes!("../target/vert.spv"),
+        include_bytes!("../target/frag.spv"),
         camera,
-        objects: vec![demo, demo2, demo3, demo4],
         meshes,
-        materials: vec![charlie],
-    };
+        vec![charlie, potoo],
+        vec![demo, demo2, demo3, demo4],
+    );
     let scene_handle = engine_builder.register_scene(start_scene);
     engine_builder.start(scene_handle);
 }
