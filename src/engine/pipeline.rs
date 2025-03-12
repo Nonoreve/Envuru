@@ -2,11 +2,11 @@ use std::{ffi, mem};
 
 use ash::{util, vk};
 
-use crate::engine::scene::Scene;
-use crate::engine::shader::{FragmentShader, MvpUbo, VertexShader};
+use crate::engine::scene::{MvpUbo, Scene};
+use crate::engine::shader::{FragmentShader, VertexShader};
 use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT};
 
-pub(crate) struct Pipeline {
+pub struct Pipeline {
     pub renderpass: vk::RenderPass,
     pub framebuffers: mem::ManuallyDrop<Vec<vk::Framebuffer>>,
     pub graphics_pipelines: mem::ManuallyDrop<Vec<vk::Pipeline>>,
@@ -144,7 +144,15 @@ impl Pipeline {
                 .device
                 .create_pipeline_layout(&layout_create_info, None)
                 .unwrap();
-            let (vertex_shader, fragment_shader) = scene.load_resources(engine, &descriptor_sets);
+            let (
+                vertex_shader,
+                input_attribute_descriptions,
+                input_binding_descriptions,
+                fragment_shader,
+            ) = scene.load_resources(engine, &descriptor_sets);
+            let vertex_input_state_info = vk::PipelineVertexInputStateCreateInfo::default()
+                .vertex_attribute_descriptions(&input_attribute_descriptions)
+                .vertex_binding_descriptions(&input_binding_descriptions);
             let shader_entry_name = ffi::CStr::from_bytes_with_nul_unchecked(b"main\0");
             let shader_stage_create_infos = [
                 vk::PipelineShaderStageCreateInfo {
@@ -162,7 +170,6 @@ impl Pipeline {
                     ..Default::default()
                 },
             ];
-            let vertex_input_state_info = vertex_shader.get_vertex_input_state_info();
             let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo {
                 topology: vk::PrimitiveTopology::TRIANGLE_LIST,
                 ..Default::default()

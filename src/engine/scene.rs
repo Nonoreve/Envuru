@@ -7,10 +7,11 @@ use ash::{util, vk};
 
 use crate::engine::Engine;
 use crate::engine::memory::{DataOrganization, IndexBuffer, Texture, VertexBuffer};
-use crate::engine::shader::{FragmentShader, Vertex, VertexShader};
+use crate::engine::shader::{FragmentShader, VertexShader};
 
 pub struct Camera {
-    pub view: cgmath::Matrix4<f32>,
+    pub position: cgmath::Point3<f32>,
+    pub direction: cgmath::Point3<f32>,
     pub projection: cgmath::PerspectiveFov<f32>,
 }
 
@@ -155,19 +156,25 @@ impl Scene {
         &self,
         engine: &Engine,
         descriptor_sets: &Vec<DescriptorSet>,
-    ) -> (VertexShader, FragmentShader) {
+    ) -> (
+        VertexShader,
+        Vec<vk::VertexInputAttributeDescription>,
+        Vec<vk::VertexInputBindingDescription>,
+        FragmentShader,
+    ) {
         for mesh in self.meshes.iter() {
             mesh.load_mesh(engine)
         }
         for material in self.materials.iter() {
             material.load_textures(engine);
         }
-        let vertex_shader = VertexShader::new(
-            &engine,
-            &self.vertex_spv.borrow(),
-            descriptor_sets,
-            DataOrganization::ObjectMajor,
-        );
+        let (vertex_shader, input_attribute_descriptions, input_binding_descriptions) =
+            VertexShader::new(
+                &engine,
+                &self.vertex_spv.borrow(),
+                descriptor_sets,
+                DataOrganization::ObjectMajor,
+            );
         let fragment_shader = FragmentShader::new(
             &engine,
             &self.fragment_spv.borrow(),
@@ -176,6 +183,25 @@ impl Scene {
         );
         self.vertex_spv.borrow_mut().clear();
         self.fragment_spv.borrow_mut().clear();
-        (vertex_shader, fragment_shader)
+        (
+            vertex_shader,
+            input_attribute_descriptions,
+            input_binding_descriptions,
+            fragment_shader,
+        )
     }
+}
+
+#[derive(Copy, Clone)]
+#[allow(dead_code)]
+pub struct MvpUbo {
+    pub model: cgmath::Matrix4<f32>,
+    pub view: cgmath::Matrix4<f32>,
+    pub projection: cgmath::Matrix4<f32>,
+}
+
+#[derive(Clone, Debug, Copy)]
+pub struct Vertex {
+    pub pos: cgmath::Vector4<f32>,
+    pub uv: cgmath::Vector2<f32>,
 }

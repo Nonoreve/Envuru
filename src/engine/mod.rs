@@ -6,19 +6,22 @@ use ash::{khr, vk};
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::{application, dpi, event, event_loop, window};
 
+use scene::MvpUbo;
+
+use crate::engine::controller::Controller;
 use crate::engine::memory::DepthImage;
 use crate::engine::pipeline::Pipeline;
 use crate::engine::scene::Scene;
-use crate::engine::shader::MvpUbo;
 use crate::engine::swapchain::Swapchain;
 
+pub mod controller;
 mod memory;
 pub mod pipeline;
 pub mod scene;
 pub(crate) mod shader;
 mod swapchain;
 
-type UpdateFn = for<'a, 'b> fn(&'b mut Scene, &'b mut Pipeline);
+type UpdateFn = for<'a, 'b, 'c> fn(&'b mut Scene, &'b mut Pipeline, &'c Controller);
 
 pub struct EngineBuilder {
     event_loop: event_loop::EventLoop<()>,
@@ -28,6 +31,7 @@ pub struct EngineBuilder {
 struct WindowHandler {
     engine: Option<Engine>,
     pipeline: Option<Pipeline>,
+    controller: Option<Controller>,
     preferred_width: u32,
     preferred_height: u32,
     name: String,
@@ -65,6 +69,7 @@ impl<'a> application::ApplicationHandler for WindowHandler {
                 (self.update_function)(
                     self.scenes.get_mut(self.starting_scene).unwrap(),
                     self.pipeline.as_mut().unwrap(),
+                    self.controller.as_ref().unwrap(),
                 );
                 self.engine.as_ref().unwrap().draw_frame(
                     self.pipeline.as_mut().unwrap(),
@@ -83,8 +88,12 @@ impl<'a> application::ApplicationHandler for WindowHandler {
                     .projection
                     .aspect = self.pipeline.as_ref().unwrap().aspect_ratio
             }
-
-            _ => (),
+            event::WindowEvent::ScaleFactorChanged { .. } => {}
+            x => {
+                if self.controller.is_some() {
+                    self.controller.as_mut().unwrap().handle_event(x);
+                }
+            }
         }
     }
 
@@ -92,6 +101,7 @@ impl<'a> application::ApplicationHandler for WindowHandler {
         (self.update_function)(
             self.scenes.get_mut(self.starting_scene).unwrap(),
             self.pipeline.as_mut().unwrap(),
+            self.controller.as_ref().unwrap(),
         );
         self.engine.as_ref().unwrap().draw_frame(
             self.pipeline.as_mut().unwrap(),
@@ -120,12 +130,14 @@ impl EngineBuilder {
         preferred_height: u32,
         name: &str,
         update_function: UpdateFn,
+        controller: Option<Controller>,
     ) -> Self {
         let event_loop = event_loop::EventLoop::new().unwrap();
         event_loop.set_control_flow(event_loop::ControlFlow::Poll);
         let window_handler = WindowHandler {
             engine: None,
             pipeline: None,
+            controller,
             preferred_width,
             preferred_height,
             name: String::from(name),
@@ -204,7 +216,7 @@ pub struct Engine {
     pub present_queue: vk::Queue,
     surface: vk::SurfaceKHR,
     surface_format: vk::SurfaceFormatKHR,
-    pub swapchain: Swapchain,
+    swapchain: Swapchain,
     pool: vk::CommandPool,
     pub draw_command_buffers: Vec<vk::CommandBuffer>,
     setup_command_buffer: vk::CommandBuffer,
@@ -467,7 +479,11 @@ impl Engine {
                     for (i, object) in scene.objects.iter().enumerate() {
                         let mvp = MvpUbo {
                             model: cgmath::Matrix4::from(object.model),
-                            view: scene.camera.view,
+                            view: cgmath::Matrix4::look_at_rh(
+                                scene.camera.position,
+                                scene.camera.direction,
+                                cgmath::vec3(0.0, 0.0, 1.0),
+                            ),
                             projection: cgmath::Matrix4::from(scene.camera.projection),
                         };
                         pipeline.update_uniforms(mvp, current_frame * scene.objects.len() + i);

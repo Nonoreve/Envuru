@@ -1,38 +1,47 @@
 use std::rc::Rc;
 
 use cgmath::Rotation3;
+use winit::keyboard;
 
+use engine::scene::Vertex;
+
+use crate::engine::controller::{Controller, KeyBind};
 use crate::engine::pipeline::Pipeline;
 use crate::engine::scene::{Camera, Material, Mesh, Object, Scene};
-use crate::engine::shader::Vertex;
 
 mod engine;
 
-fn update(scene: &mut Scene, runtime_data: &mut Pipeline) {
-    // let model = cgmath::Decomposed {
-    //     scale: 1.0,
-    //     rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(runtime_data.frames as f32 * 0.1)),
-    //     disp: cgmath::vec3(0.0, 0.0, 0.0),
-    // };
-    // scene.objects[0].model = model;
+enum KeyActions {
+    FORWARD,
+}
+
+fn update(scene: &mut Scene, runtime_data: &mut Pipeline, controller: &Controller) {
     scene.objects[0].model.rot =
         cgmath::Quaternion::from_angle_z(cgmath::Deg(runtime_data.frames as f32 * 0.1));
+    if controller.is_hold(KeyActions::FORWARD as usize) {
+        scene.camera.direction.x += 0.01;
+        scene.camera.position.x += 0.01
+    }
 }
 
 fn main() {
-    let mut engine_builder = engine::EngineBuilder::new(960, 540, "Envuru", update);
-    let view = cgmath::Matrix4::look_at_rh(
-        cgmath::point3(1.0, 1.0, 1.0),
-        cgmath::point3(0.0, 0.0, 0.0),
-        cgmath::vec3(0.0, 0.0, 1.0),
+    let mut controller = Some(Controller::new());
+    controller.as_mut().unwrap().register_bind_action(
+        KeyActions::FORWARD as usize,
+        KeyBind::new(keyboard::PhysicalKey::Code(keyboard::KeyCode::KeyQ)),
     );
+    let mut engine_builder = engine::EngineBuilder::new(960, 540, "Envuru", update, controller);
     let projection = cgmath::PerspectiveFov {
         fovy: cgmath::Rad::from(cgmath::Deg(45.0)),
         aspect: 1.0,
         near: 0.1,
         far: 10.0,
     };
-    let camera = Camera { view, projection };
+    let camera = Camera {
+        position: cgmath::point3(1.0, 1.0, 1.0),
+        direction: cgmath::point3(0.0, 0.0, 0.0),
+        projection,
+    };
     let rectangle_vertices = [
         Vertex {
             pos: cgmath::vec4(-1.0, -1.0, 0.0, 1.0),
@@ -63,9 +72,9 @@ fn main() {
         image::load_from_memory(include_bytes!("../resources/textures/potoo_asks.jpg")).unwrap(),
     ]));
     let demo_model = cgmath::Decomposed {
-        scale: 0.2,
+        scale: 1.0,
         rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(0.1)),
-        disp: cgmath::vec3(-0.5, 0.0, 0.0),
+        disp: cgmath::vec3(0.0, 0.0, 0.0),
     };
     let demo = Object {
         mesh: Rc::clone(&rectangle_mesh),
@@ -73,9 +82,9 @@ fn main() {
         material: Rc::clone(&charlie),
     };
     let demo_model2 = cgmath::Decomposed {
-        scale: 0.4,
+        scale: 1.0,
         rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(0.1)),
-        disp: cgmath::vec3(-0.2, 0.2, -0.2),
+        disp: cgmath::vec3(1.0, 0.0, 0.0),
     };
     let demo2 = Object {
         mesh: Rc::clone(&rectangle_mesh),
@@ -83,9 +92,9 @@ fn main() {
         material: Rc::clone(&charlie),
     };
     let demo_model3 = cgmath::Decomposed {
-        scale: 0.6,
+        scale: 1.0,
         rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(45.0)),
-        disp: cgmath::vec3(0.2, 0.4, -0.4),
+        disp: cgmath::vec3(0.0, 1.0, 0.0),
     };
     let demo3 = Object {
         mesh: Rc::clone(&rectangle_mesh),
@@ -93,9 +102,9 @@ fn main() {
         material: Rc::clone(&potoo),
     };
     let demo_model4 = cgmath::Decomposed {
-        scale: 0.8,
+        scale: 1.0,
         rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(78.0)),
-        disp: cgmath::vec3(0.5, 0.6, -0.6),
+        disp: cgmath::vec3(0.0, 0.0, 1.0),
     };
     let demo4 = Object {
         mesh: Rc::clone(&rectangle_mesh),

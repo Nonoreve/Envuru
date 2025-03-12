@@ -2,7 +2,7 @@ use std::ffi::c_void;
 
 use ash::{util, vk};
 
-use crate::engine::shader::Vertex;
+use crate::engine::scene::Vertex;
 use crate::engine::swapchain::Swapchain;
 use crate::engine::{DIRECT_MAPPING, Engine};
 

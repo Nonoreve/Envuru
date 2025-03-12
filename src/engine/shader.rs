@@ -1,10 +1,9 @@
 use std::mem;
 
-use ash::vk;
-
 use crate::engine::Engine;
 use crate::engine::memory::{DataOrganization, UniformBuffer};
-use crate::engine::scene::Object;
+use crate::engine::scene::{MvpUbo, Object, Vertex};
+use ash::vk;
 
 #[macro_export]
 macro_rules! offset_of {
@@ -17,25 +16,9 @@ macro_rules! offset_of {
     }};
 }
 
-#[derive(Copy, Clone)]
-#[allow(dead_code)]
-pub struct MvpUbo {
-    pub model: cgmath::Matrix4<f32>,
-    pub view: cgmath::Matrix4<f32>,
-    pub projection: cgmath::Matrix4<f32>,
-}
-
-#[derive(Clone, Debug, Copy)]
-pub struct Vertex {
-    pub pos: cgmath::Vector4<f32>,
-    pub uv: cgmath::Vector2<f32>,
-}
-
 #[derive(Debug)]
 pub struct VertexShader {
     pub module: vk::ShaderModule,
-    pub input_binding_descriptions: Vec<vk::VertexInputBindingDescription>,
-    pub input_attribute_descriptions: Vec<vk::VertexInputAttributeDescription>,
     pub uniform_mvp_buffers: Vec<UniformBuffer>,
 }
 
@@ -45,7 +28,11 @@ impl VertexShader {
         spv_data: &Vec<u32>,
         descriptor_sets: &Vec<vk::DescriptorSet>,
         style: DataOrganization,
-    ) -> Self {
+    ) -> (
+        VertexShader,
+        Vec<vk::VertexInputAttributeDescription>,
+        Vec<vk::VertexInputBindingDescription>,
+    ) {
         let vertex_shader_info = vk::ShaderModuleCreateInfo::default().code(spv_data);
         let input_binding_descriptions = vec![vk::VertexInputBindingDescription {
             binding: 0,
@@ -87,19 +74,15 @@ impl VertexShader {
                 .device
                 .create_shader_module(&vertex_shader_info, None)
                 .unwrap();
-            Self {
-                module,
-                input_binding_descriptions,
+            (
+                Self {
+                    module,
+                    uniform_mvp_buffers,
+                },
                 input_attribute_descriptions,
-                uniform_mvp_buffers,
-            }
+                input_binding_descriptions,
+            )
         }
-    }
-
-    pub fn get_vertex_input_state_info(&self) -> vk::PipelineVertexInputStateCreateInfo {
-        vk::PipelineVertexInputStateCreateInfo::default()
-            .vertex_attribute_descriptions(&self.input_attribute_descriptions)
-            .vertex_binding_descriptions(&self.input_binding_descriptions)
     }
 
     pub fn delete(&self, engine: &Engine) {
