@@ -6,7 +6,7 @@ use crate::engine::scene::{MvpUbo, Scene};
 use crate::engine::shader::{FragmentShader, VertexShader};
 use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT};
 
-pub struct Pipeline {
+pub struct Pipelines {
     pub renderpass: vk::RenderPass,
     pub framebuffers: mem::ManuallyDrop<Vec<vk::Framebuffer>>,
     pub graphics_pipelines: mem::ManuallyDrop<Vec<vk::Pipeline>>,
@@ -14,13 +14,13 @@ pub struct Pipeline {
     pub frames: u64,
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
-    pub descriptor_sets: Vec<vk::DescriptorSet>,
+    pub descriptors_sets: Vec<Vec<vk::DescriptorSet>>,
     pub aspect_ratio: f32,
-    vertex_shader: VertexShader,
-    fragment_shader: FragmentShader,
+    vertex_shaders: mem::ManuallyDrop<Vec<VertexShader>>,
+    fragment_shaders: mem::ManuallyDrop<Vec<FragmentShader>>,
 }
 
-impl Pipeline {
+impl Pipelines {
     pub fn new(engine: &Engine, scene: &mut Scene) -> Self {
         let renderpass_attachments = [
             vk::AttachmentDescription {
@@ -113,63 +113,33 @@ impl Pipeline {
             let descriptor_sizes = [
                 vk::DescriptorPoolSize {
                     ty: vk::DescriptorType::UNIFORM_BUFFER,
-                    descriptor_count: MAX_FRAMES_IN_FLIGHT * scene.objects.len() as u32,
+                    descriptor_count: MAX_FRAMES_IN_FLIGHT * (scene.shader_sets * scene.objects.len()) as u32,
                 },
                 vk::DescriptorPoolSize {
                     ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    descriptor_count: MAX_FRAMES_IN_FLIGHT * scene.objects.len() as u32,
+                    descriptor_count: MAX_FRAMES_IN_FLIGHT * (scene.shader_sets * scene.objects.len()) as u32,
                 },
             ];
             let descriptor_pool_info = vk::DescriptorPoolCreateInfo::default()
                 .pool_sizes(&descriptor_sizes)
-                .max_sets(MAX_FRAMES_IN_FLIGHT * scene.objects.len() as u32);
+                .max_sets(MAX_FRAMES_IN_FLIGHT * (scene.shader_sets * scene.objects.len()) as u32);
             let descriptor_pool = engine
                 .device
                 .create_descriptor_pool(&descriptor_pool_info, None)
                 .unwrap();
-            let desc_set_layouts: Vec<vk::DescriptorSetLayout> = (0..MAX_FRAMES_IN_FLIGHT
-                * scene.objects.len() as u32)
-                .map(|_| descriptor_set_layout.clone())
-                .collect();
+            let desc_set_layouts: Vec<vk::DescriptorSetLayout> =
+                (0..MAX_FRAMES_IN_FLIGHT * scene.objects.len() as u32)
+                    .map(|_| descriptor_set_layout.clone())
+                    .collect();
             let desc_alloc_info = vk::DescriptorSetAllocateInfo::default()
                 .descriptor_pool(descriptor_pool)
                 .set_layouts(&desc_set_layouts);
-            let descriptor_sets = engine
-                .device
-                .allocate_descriptor_sets(&desc_alloc_info)
-                .unwrap();
             let layout_create_info =
                 vk::PipelineLayoutCreateInfo::default().set_layouts(&desc_set_layouts[..1]);
             let pipeline_layout = engine
                 .device
                 .create_pipeline_layout(&layout_create_info, None)
                 .unwrap();
-            let (
-                vertex_shader,
-                input_attribute_descriptions,
-                input_binding_descriptions,
-                fragment_shader,
-            ) = scene.load_resources(engine, &descriptor_sets);
-            let vertex_input_state_info = vk::PipelineVertexInputStateCreateInfo::default()
-                .vertex_attribute_descriptions(&input_attribute_descriptions)
-                .vertex_binding_descriptions(&input_binding_descriptions);
-            let shader_entry_name = ffi::CStr::from_bytes_with_nul_unchecked(b"main\0");
-            let shader_stage_create_infos = [
-                vk::PipelineShaderStageCreateInfo {
-                    s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
-                    module: vertex_shader.module,
-                    p_name: shader_entry_name.as_ptr(),
-                    stage: vk::ShaderStageFlags::VERTEX,
-                    ..Default::default()
-                },
-                vk::PipelineShaderStageCreateInfo {
-                    s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
-                    module: fragment_shader.module,
-                    p_name: shader_entry_name.as_ptr(),
-                    stage: vk::ShaderStageFlags::FRAGMENT,
-                    ..Default::default()
-                },
-            ];
             let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo {
                 topology: vk::PrimitiveTopology::TRIANGLE_LIST,
                 ..Default::default()
@@ -221,30 +191,78 @@ impl Pipeline {
             let dynamic_state = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
             let dynamic_state_info =
                 vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_state);
-            let graphic_pipeline_info = vk::GraphicsPipelineCreateInfo::default()
-                .stages(&shader_stage_create_infos)
-                .vertex_input_state(&vertex_input_state_info)
-                .input_assembly_state(&vertex_input_assembly_state_info)
-                .viewport_state(&viewport_state_info)
-                .rasterization_state(&rasterization_info)
-                .multisample_state(&multisample_state_info)
-                .depth_stencil_state(&depth_state_info)
-                .color_blend_state(&color_blend_state)
-                .dynamic_state(&dynamic_state_info)
-                .layout(pipeline_layout)
-                .render_pass(renderpass);
+            let shader_entry_name = ffi::CStr::from_bytes_with_nul_unchecked(b"main\0");
+            let mut vertex_shaders = Vec::new();
+            let mut fragment_shaders = Vec::new();
+            let mut input_attributes_descriptions = Vec::new();
+            let mut input_bindings_descriptions = Vec::new();
+            let mut descriptors_sets = Vec::new();
+            let mut shader_stages_create_infos = Vec::new();
+            for tuple in scene.load_resources(engine, &desc_alloc_info) {
+                let (
+                    vertex_shader,
+                    input_attribute_descriptions,
+                    input_binding_descriptions,
+                    fragment_shader,
+                    descriptor_sets,
+                ) = tuple;
+                let shader_stage_create_infos = [
+                    vk::PipelineShaderStageCreateInfo {
+                        s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
+                        module: vertex_shader.module,
+                        p_name: shader_entry_name.as_ptr(),
+                        stage: vk::ShaderStageFlags::VERTEX,
+                        ..Default::default()
+                    },
+                    vk::PipelineShaderStageCreateInfo {
+                        s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
+                        module: fragment_shader.module,
+                        p_name: shader_entry_name.as_ptr(),
+                        stage: vk::ShaderStageFlags::FRAGMENT,
+                        ..Default::default()
+                    },
+                ];
+                input_attributes_descriptions.push(input_attribute_descriptions);
+                input_bindings_descriptions.push(input_binding_descriptions);
+                descriptors_sets.push(descriptor_sets);
+                vertex_shaders.push(vertex_shader);
+                fragment_shaders.push(fragment_shader);
+                shader_stages_create_infos.push(shader_stage_create_infos)
+            }
+            let mut vertex_input_state_infos = Vec::new();
+            for i in 0..vertex_shaders.len() {
+                let vertex_input_state_info = vk::PipelineVertexInputStateCreateInfo::default()
+                    .vertex_attribute_descriptions(input_attributes_descriptions[i].as_slice())
+                    .vertex_binding_descriptions(input_bindings_descriptions[i].as_slice());
+                vertex_input_state_infos.push(vertex_input_state_info)
+            }
+            let mut graphic_pipeline_infos = Vec::new();
+            for i in 0..vertex_shaders.len() {
+                let graphic_pipeline_info = vk::GraphicsPipelineCreateInfo::default()
+                    .stages(&shader_stages_create_infos[i])
+                    .vertex_input_state(&vertex_input_state_infos[i])
+                    .input_assembly_state(&vertex_input_assembly_state_info)
+                    .viewport_state(&viewport_state_info)
+                    .rasterization_state(&rasterization_info)
+                    .multisample_state(&multisample_state_info)
+                    .depth_stencil_state(&depth_state_info)
+                    .color_blend_state(&color_blend_state)
+                    .dynamic_state(&dynamic_state_info)
+                    .layout(pipeline_layout)
+                    .render_pass(renderpass);
+                graphic_pipeline_infos.push(graphic_pipeline_info)
+            }
             let graphics_pipelines = engine
                 .device
                 .create_graphics_pipelines(
                     vk::PipelineCache::null(),
-                    &[graphic_pipeline_info],
+                    graphic_pipeline_infos.as_slice(),
                     None,
                 )
                 .unwrap();
-            assert_eq!(graphics_pipelines.len(), 1);
             let aspect_ratio = engine.swapchain.surface_resolution.width as f32
                 / engine.swapchain.surface_resolution.height as f32;
-            Pipeline {
+            Pipelines {
                 renderpass,
                 framebuffers: mem::ManuallyDrop::new(framebuffers),
                 graphics_pipelines: mem::ManuallyDrop::new(graphics_pipelines),
@@ -252,10 +270,10 @@ impl Pipeline {
                 frames: 0,
                 descriptor_set_layout,
                 descriptor_pool,
-                descriptor_sets,
+                descriptors_sets,
                 aspect_ratio,
-                vertex_shader,
-                fragment_shader,
+                vertex_shaders: mem::ManuallyDrop::new(vertex_shaders),
+                fragment_shaders: mem::ManuallyDrop::new(fragment_shaders),
             }
         }
     }
@@ -285,14 +303,14 @@ impl Pipeline {
         }
     }
 
-    pub fn update_uniforms(&self, mvp: MvpUbo, current_frame: usize) {
+    pub fn update_uniforms(&self, pipeline_index: usize, mvp: MvpUbo, current_frame: usize) {
         unsafe {
             let mut alignment = util::Align::new(
-                self.vertex_shader.uniform_mvp_buffers[current_frame]
+                self.vertex_shaders[pipeline_index].uniform_mvp_buffers[current_frame]
                     .data_ptr
                     .unwrap(),
                 align_of::<f32>() as u64,
-                self.vertex_shader.uniform_mvp_buffers[current_frame]
+                self.vertex_shaders[pipeline_index].uniform_mvp_buffers[current_frame]
                     .memory_requirements
                     .size,
             );
@@ -319,11 +337,17 @@ impl Pipeline {
             engine
                 .device
                 .destroy_pipeline_layout(self.pipeline_layout, None);
-            self.vertex_shader.delete(engine);
+            let vertex_shaders = mem::ManuallyDrop::take(&mut self.vertex_shaders);
+            for vertex_shader in vertex_shaders {
+                vertex_shader.delete(engine);
+            }
             for mesh in scene.meshes.iter() {
                 mesh.delete(engine);
             }
-            self.fragment_shader.delete(engine);
+            let fragment_shaders = mem::ManuallyDrop::take(&mut self.fragment_shaders);
+            for fragment_shader in fragment_shaders {
+                fragment_shader.delete(engine);
+            }
             for material in scene.materials.iter() {
                 material.delete(engine);
             }

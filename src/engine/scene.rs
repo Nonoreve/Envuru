@@ -2,7 +2,7 @@ use std::cell::{OnceCell, RefCell};
 use std::io::Cursor;
 use std::rc::Rc;
 
-use ash::vk::DescriptorSet;
+use ash::vk::DescriptorSetAllocateInfo;
 use ash::{util, vk};
 
 use crate::engine::Engine;
@@ -124,71 +124,92 @@ pub struct Scene {
     pub meshes: Vec<Rc<Mesh>>,
     pub materials: Vec<Rc<Material>>,
     pub objects: Vec<Object>,
-    vertex_spv: RefCell<Vec<u32>>,
-    fragment_spv: RefCell<Vec<u32>>,
+    vertex_spvs: Vec<RefCell<Vec<u32>>>,
+    fragment_spvs: Vec<RefCell<Vec<u32>>>,
+    pub shader_sets: usize,
 }
 
 impl Scene {
     pub fn new(
-        vertex_shader_bytes: &[u8],
-        framgent_shader_bytes: &[u8],
+        vertex_shader_bytes: Vec<&[u8]>,
+        fragment_shader_bytes: Vec<&[u8]>,
         camera: Camera,
         meshes: Vec<Rc<Mesh>>,
         materials: Vec<Rc<Material>>,
         objects: Vec<Object>,
     ) -> Self {
         // TODO support on-the-fly shader compil
-        let mut spv_data = Cursor::new(vertex_shader_bytes);
-        let vertex_spv = RefCell::new(util::read_spv(&mut spv_data).unwrap());
-        let mut spv_data = Cursor::new(framgent_shader_bytes);
-        let fragment_spv = RefCell::new(util::read_spv(&mut spv_data).unwrap());
+        let mut vertex_spvs = Vec::new();
+        let mut fragment_spvs = Vec::new();
+        let shader_sets = vertex_shader_bytes.len();
+        for i in 0..shader_sets {
+            let mut spv_data = Cursor::new(vertex_shader_bytes[i]);
+            let vertex_spv = RefCell::new(util::read_spv(&mut spv_data).unwrap());
+            let mut spv_data = Cursor::new(fragment_shader_bytes[i]);
+            let fragment_spv = RefCell::new(util::read_spv(&mut spv_data).unwrap());
+            vertex_spvs.push(vertex_spv);
+            fragment_spvs.push(fragment_spv);
+        }
         Self {
             camera,
             meshes,
             materials,
             objects,
-            vertex_spv,
-            fragment_spv,
+            vertex_spvs,
+            fragment_spvs,
+            shader_sets,
         }
     }
 
     pub fn load_resources(
         &self,
         engine: &Engine,
-        descriptor_sets: &Vec<DescriptorSet>,
-    ) -> (
+        desc_alloc_info: &DescriptorSetAllocateInfo,
+    ) -> Vec<(
         VertexShader,
         Vec<vk::VertexInputAttributeDescription>,
         Vec<vk::VertexInputBindingDescription>,
         FragmentShader,
-    ) {
+        Vec<vk::DescriptorSet>,
+    )> {
         for mesh in self.meshes.iter() {
             mesh.load_mesh(engine)
         }
         for material in self.materials.iter() {
             material.load_textures(engine);
         }
-        let (vertex_shader, input_attribute_descriptions, input_binding_descriptions) =
-            VertexShader::new(
-                &engine,
-                &self.vertex_spv.borrow(),
-                descriptor_sets,
-                DataOrganization::ObjectMajor,
-            );
-        let fragment_shader = FragmentShader::new(
-            &engine,
-            &self.fragment_spv.borrow(),
-            &self.objects,
-            descriptor_sets,
-        );
-        self.vertex_spv.borrow_mut().clear();
-        self.fragment_spv.borrow_mut().clear();
-        (
-            vertex_shader,
-            input_attribute_descriptions,
-            input_binding_descriptions,
-            fragment_shader,
-        )
+        let mut result = Vec::new();
+        for i in 0..self.shader_sets {
+            unsafe {
+                let descriptor_sets = engine
+                    .device
+                    .allocate_descriptor_sets(desc_alloc_info)
+                    .unwrap();
+                let (vertex_shader, input_attribute_descriptions, input_binding_descriptions) =
+                    VertexShader::new(
+                        &engine,
+                        &self.vertex_spvs[i].borrow(),
+                        &descriptor_sets,
+                        DataOrganization::ObjectMajor,
+                    );
+                let fragment_shader = FragmentShader::new(
+                    &engine,
+                    &self.fragment_spvs[i].borrow(),
+                    &self.objects,
+                    &descriptor_sets,
+                );
+                self.vertex_spvs[i].borrow_mut().clear();
+                self.fragment_spvs[i].borrow_mut().clear();
+                result.push((
+                    vertex_shader,
+                    input_attribute_descriptions,
+                    input_binding_descriptions,
+                    fragment_shader,
+                    descriptor_sets,
+                ))
+            }
+        }
+        result
     }
 }
 

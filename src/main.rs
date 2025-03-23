@@ -6,7 +6,7 @@ use winit::keyboard;
 use engine::scene::Vertex;
 
 use crate::engine::controller::{Controller, KeyBind};
-use crate::engine::pipeline::Pipeline;
+use crate::engine::pipeline::Pipelines;
 use crate::engine::scene::{Camera, Material, Mesh, Object, Scene};
 
 mod engine;
@@ -15,7 +15,7 @@ enum KeyActions {
     FORWARD,
 }
 
-fn update(scene: &mut Scene, runtime_data: &mut Pipeline, controller: &Controller) {
+fn update(scene: &mut Scene, runtime_data: &mut Pipelines, controller: &Controller) {
     scene.objects[0].model.rot =
         cgmath::Quaternion::from_angle_z(cgmath::Deg(runtime_data.frames as f32 * 0.1));
     if controller.is_hold(KeyActions::FORWARD as usize) {
@@ -113,8 +113,8 @@ fn main() {
     };
     let meshes = vec![rectangle_mesh];
     let start_scene = Scene::new(
-        include_bytes!("../target/vert.spv"),
-        include_bytes!("../target/frag.spv"),
+        vec![include_bytes!("../target/vert.spv"), include_bytes!("../target/vert.spv")],
+        vec![include_bytes!("../target/frag.spv"), include_bytes!("../target/frag.spv")],
         camera,
         meshes,
         vec![charlie, potoo],

@@ -10,7 +10,7 @@ use scene::MvpUbo;
 
 use crate::engine::controller::Controller;
 use crate::engine::memory::DepthImage;
-use crate::engine::pipeline::Pipeline;
+use crate::engine::pipeline::Pipelines;
 use crate::engine::scene::Scene;
 use crate::engine::swapchain::Swapchain;
 
@@ -21,7 +21,7 @@ pub mod scene;
 pub(crate) mod shader;
 mod swapchain;
 
-type UpdateFn = for<'a, 'b, 'c> fn(&'b mut Scene, &'b mut Pipeline, &'c Controller);
+type UpdateFn = for<'a, 'b, 'c> fn(&'b mut Scene, &'b mut Pipelines, &'c Controller);
 
 pub struct EngineBuilder {
     event_loop: event_loop::EventLoop<()>,
@@ -30,7 +30,7 @@ pub struct EngineBuilder {
 
 struct WindowHandler {
     engine: Option<Engine>,
-    pipeline: Option<Pipeline>,
+    pipeline: Option<Pipelines>,
     controller: Option<Controller>,
     preferred_width: u32,
     preferred_height: u32,
@@ -50,7 +50,7 @@ impl<'a> application::ApplicationHandler for WindowHandler {
                 event_loop,
             );
             let scene = self.scenes.get_mut(self.starting_scene).unwrap();
-            self.pipeline = Some(Pipeline::new(&engine, scene));
+            self.pipeline = Some(Pipelines::new(&engine, scene));
             self.engine = Some(engine);
         }
     }
@@ -421,7 +421,7 @@ impl Engine {
         }
     }
 
-    fn draw_frame(&self, pipeline: &mut Pipeline, scene: &Scene) {
+    fn draw_frame(&self, pipeline: &mut Pipelines, scene: &Scene) {
         let current_frame = (pipeline.frames % MAX_FRAMES_IN_FLIGHT as u64) as usize;
         let clear_values = [
             vk::ClearValue {
@@ -469,41 +469,49 @@ impl Engine {
                         &render_pass_begin_info,
                         vk::SubpassContents::INLINE,
                     );
-                    device.cmd_bind_pipeline(
-                        draw_command_buffer,
-                        vk::PipelineBindPoint::GRAPHICS,
-                        pipeline.graphics_pipelines[0],
-                    );
-                    device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
-                    device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
-                    for (i, object) in scene.objects.iter().enumerate() {
-                        let mvp = MvpUbo {
-                            model: cgmath::Matrix4::from(object.model),
-                            view: cgmath::Matrix4::look_at_rh(
-                                scene.camera.position,
-                                scene.camera.direction,
-                                cgmath::vec3(0.0, 0.0, 1.0),
-                            ),
-                            projection: cgmath::Matrix4::from(scene.camera.projection),
-                        };
-                        pipeline.update_uniforms(mvp, current_frame * scene.objects.len() + i);
-                        object.mesh.bind_buffers(self, current_frame);
-                        device.cmd_bind_descriptor_sets(
+                    for shader_set_index in 0..scene.shader_sets {
+                        device.cmd_bind_pipeline(
                             draw_command_buffer,
                             vk::PipelineBindPoint::GRAPHICS,
-                            pipeline.pipeline_layout,
-                            0,
-                            &[pipeline.descriptor_sets[current_frame * scene.objects.len() + i]],
-                            &[],
+                            pipeline.graphics_pipelines[shader_set_index],
                         );
-                        device.cmd_draw_indexed(
-                            draw_command_buffer,
-                            object.mesh.get_index_count(),
-                            1,
-                            0,
-                            0,
-                            1,
-                        );
+                        device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
+                        device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
+                        for (obj_index, object) in scene.objects.iter().enumerate() {
+                            let mvp = MvpUbo {
+                                model: cgmath::Matrix4::from(object.model),
+                                view: cgmath::Matrix4::look_at_rh(
+                                    scene.camera.position,
+                                    scene.camera.direction,
+                                    cgmath::vec3(0.0, 0.0, 1.0),
+                                ),
+                                projection: cgmath::Matrix4::from(scene.camera.projection),
+                            };
+                            pipeline.update_uniforms(
+                                shader_set_index,
+                                mvp,
+                                current_frame * scene.objects.len() + obj_index,
+                            );
+
+                            object.mesh.bind_buffers(self, current_frame);
+                            device.cmd_bind_descriptor_sets(
+                                draw_command_buffer,
+                                vk::PipelineBindPoint::GRAPHICS,
+                                pipeline.pipeline_layout,
+                                0,
+                                &[pipeline.descriptors_sets[shader_set_index]
+                                    [current_frame * scene.objects.len() + obj_index]],
+                                &[],
+                            );
+                            device.cmd_draw_indexed(
+                                draw_command_buffer,
+                                object.mesh.get_index_count(),
+                                1,
+                                0,
+                                0,
+                                1,
+                            );
+                        }
                     }
                     device.cmd_end_render_pass(draw_command_buffer);
                 },
@@ -513,7 +521,7 @@ impl Engine {
         }
     }
 
-    pub fn on_window_resize(&mut self, pipeline: &mut Pipeline) {
+    pub fn on_window_resize(&mut self, pipeline: &mut Pipelines) {
         unsafe {
             self.device.device_wait_idle().unwrap();
             self.swapchain.delete(&self.device);

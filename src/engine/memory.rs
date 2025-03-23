@@ -60,6 +60,8 @@ impl GraphicsBuffer {
                 );
                 Some(ptr.unwrap())
             };
+            // TODO in debug target, fill buffer with initial default data easily recognizable to detect when buffer is not properly filled at loop time
+            // applicable to all uniform buffers
             (
                 data_ptr,
                 memory_requirements,
