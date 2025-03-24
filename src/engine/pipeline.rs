@@ -113,24 +113,26 @@ impl Pipelines {
             let descriptor_sizes = [
                 vk::DescriptorPoolSize {
                     ty: vk::DescriptorType::UNIFORM_BUFFER,
-                    descriptor_count: MAX_FRAMES_IN_FLIGHT * (scene.shader_sets * scene.objects.len()) as u32,
+                    descriptor_count: MAX_FRAMES_IN_FLIGHT
+                        * (scene.unique_shader_sets() * scene.objects.len()) as u32,
                 },
                 vk::DescriptorPoolSize {
                     ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    descriptor_count: MAX_FRAMES_IN_FLIGHT * (scene.shader_sets * scene.objects.len()) as u32,
+                    descriptor_count: MAX_FRAMES_IN_FLIGHT
+                        * (scene.unique_shader_sets() * scene.objects.len()) as u32,
                 },
             ];
             let descriptor_pool_info = vk::DescriptorPoolCreateInfo::default()
                 .pool_sizes(&descriptor_sizes)
-                .max_sets(MAX_FRAMES_IN_FLIGHT * (scene.shader_sets * scene.objects.len()) as u32);
+                .max_sets(MAX_FRAMES_IN_FLIGHT * (scene.unique_shader_sets() * scene.objects.len()) as u32);
             let descriptor_pool = engine
                 .device
                 .create_descriptor_pool(&descriptor_pool_info, None)
                 .unwrap();
-            let desc_set_layouts: Vec<vk::DescriptorSetLayout> =
-                (0..MAX_FRAMES_IN_FLIGHT * scene.objects.len() as u32)
-                    .map(|_| descriptor_set_layout.clone())
-                    .collect();
+            let desc_set_layouts: Vec<vk::DescriptorSetLayout> = (0..MAX_FRAMES_IN_FLIGHT
+                * scene.objects.len() as u32)
+                .map(|_| descriptor_set_layout.clone())
+                .collect();
             let desc_alloc_info = vk::DescriptorSetAllocateInfo::default()
                 .descriptor_pool(descriptor_pool)
                 .set_layouts(&desc_set_layouts);
@@ -140,10 +142,6 @@ impl Pipelines {
                 .device
                 .create_pipeline_layout(&layout_create_info, None)
                 .unwrap();
-            let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo {
-                topology: vk::PrimitiveTopology::TRIANGLE_LIST,
-                ..Default::default()
-            };
             let viewport_state_info = vk::PipelineViewportStateCreateInfo {
                 viewport_count: 1,
                 scissor_count: 1,
@@ -198,6 +196,7 @@ impl Pipelines {
             let mut input_bindings_descriptions = Vec::new();
             let mut descriptors_sets = Vec::new();
             let mut shader_stages_create_infos = Vec::new();
+            let mut vertex_input_assembly_state_infos = Vec::new();
             for tuple in scene.load_resources(engine, &desc_alloc_info) {
                 let (
                     vertex_shader,
@@ -205,6 +204,7 @@ impl Pipelines {
                     input_binding_descriptions,
                     fragment_shader,
                     descriptor_sets,
+                    vertex_input_assembly_state_info,
                 ) = tuple;
                 let shader_stage_create_infos = [
                     vk::PipelineShaderStageCreateInfo {
@@ -227,7 +227,8 @@ impl Pipelines {
                 descriptors_sets.push(descriptor_sets);
                 vertex_shaders.push(vertex_shader);
                 fragment_shaders.push(fragment_shader);
-                shader_stages_create_infos.push(shader_stage_create_infos)
+                shader_stages_create_infos.push(shader_stage_create_infos);
+                vertex_input_assembly_state_infos.push(vertex_input_assembly_state_info)
             }
             let mut vertex_input_state_infos = Vec::new();
             for i in 0..vertex_shaders.len() {
@@ -241,7 +242,7 @@ impl Pipelines {
                 let graphic_pipeline_info = vk::GraphicsPipelineCreateInfo::default()
                     .stages(&shader_stages_create_infos[i])
                     .vertex_input_state(&vertex_input_state_infos[i])
-                    .input_assembly_state(&vertex_input_assembly_state_info)
+                    .input_assembly_state(&vertex_input_assembly_state_infos[i])
                     .viewport_state(&viewport_state_info)
                     .rasterization_state(&rasterization_info)
                     .multisample_state(&multisample_state_info)

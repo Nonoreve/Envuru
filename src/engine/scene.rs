@@ -110,6 +110,7 @@ pub struct Object {
     pub mesh: Rc<Mesh>,
     pub model: cgmath::Decomposed<cgmath::Vector3<f32>, cgmath::Quaternion<f32>>,
     pub material: Rc<Material>,
+    pub shader_set: Rc<ShaderSet>,
 }
 
 impl Object {
@@ -119,50 +120,96 @@ impl Object {
     }
 }
 
+pub struct Line {
+    pub model: cgmath::Decomposed<cgmath::Vector3<f32>, cgmath::Quaternion<f32>>,
+    pub shader_set: Rc<ShaderSet>,
+}
+
+pub struct ShaderSet {
+    vertex_spv: RefCell<Vec<u32>>,
+    fragment_spv: RefCell<Vec<u32>>,
+    topology: OnceCell<vk::PrimitiveTopology>,
+    index: OnceCell<usize>,
+}
+
+impl ShaderSet {
+    pub fn new(vertex_shader_bytes: &[u8], fragment_shader_bytes: &[u8]) -> Self {
+        // TODO support on-the-fly shader compil
+        let mut spv_data = Cursor::new(vertex_shader_bytes);
+        let vertex_spv = RefCell::new(util::read_spv(&mut spv_data).unwrap());
+        let mut spv_data = Cursor::new(fragment_shader_bytes);
+        let fragment_spv = RefCell::new(util::read_spv(&mut spv_data).unwrap());
+        Self {
+            vertex_spv,
+            fragment_spv,
+            topology: OnceCell::new(),
+            index: OnceCell::new(),
+        }
+    }
+
+    pub fn get_index(&self) -> usize {
+        self.index.get().unwrap().clone()
+    }
+}
+
 pub struct Scene {
     pub camera: Camera,
+    pub lines: Vec<Line>,
+    pub objects: Vec<Object>,
     pub meshes: Vec<Rc<Mesh>>,
     pub materials: Vec<Rc<Material>>,
-    pub objects: Vec<Object>,
-    vertex_spvs: Vec<RefCell<Vec<u32>>>,
-    fragment_spvs: Vec<RefCell<Vec<u32>>>,
-    pub shader_sets: usize,
+    shader_sets: Vec<Rc<ShaderSet>>,
 }
 
 impl Scene {
     pub fn new(
-        vertex_shader_bytes: Vec<&[u8]>,
-        fragment_shader_bytes: Vec<&[u8]>,
         camera: Camera,
+        mut lines: Vec<Line>,
+        mut objects: Vec<Object>,
         meshes: Vec<Rc<Mesh>>,
         materials: Vec<Rc<Material>>,
-        objects: Vec<Object>,
+        shader_sets: Vec<Rc<ShaderSet>>,
     ) -> Self {
-        // TODO support on-the-fly shader compil
-        let mut vertex_spvs = Vec::new();
-        let mut fragment_spvs = Vec::new();
-        let shader_sets = vertex_shader_bytes.len();
-        for i in 0..shader_sets {
-            let mut spv_data = Cursor::new(vertex_shader_bytes[i]);
-            let vertex_spv = RefCell::new(util::read_spv(&mut spv_data).unwrap());
-            let mut spv_data = Cursor::new(fragment_shader_bytes[i]);
-            let fragment_spv = RefCell::new(util::read_spv(&mut spv_data).unwrap());
-            vertex_spvs.push(vertex_spv);
-            fragment_spvs.push(fragment_spv);
+        for object in objects.iter_mut() {
+            if object.shader_set.topology.get().is_none() {
+                object
+                    .shader_set
+                    .topology
+                    .set(vk::PrimitiveTopology::TRIANGLE_LIST)
+                    .unwrap()
+            }
+        }
+        for line in lines.iter_mut() {
+            if line.shader_set.topology.get().is_none() {
+                line.shader_set
+                    .topology
+                    .set(vk::PrimitiveTopology::LINE_LIST)
+                    .unwrap();
+            }
+        }
+        let mut used_shader_sets = Vec::new();
+        for (i, shader_set) in shader_sets.into_iter().enumerate() {
+            if shader_set.topology.get().is_some() {
+                used_shader_sets.push(shader_set);
+            } else {
+                println!("Shader set {i} not used");
+            }
+        }
+        for (i, shader_set) in used_shader_sets.iter().enumerate() {
+            shader_set.index.set(i).unwrap();
         }
         Self {
             camera,
+            lines,
+            objects,
             meshes,
             materials,
-            objects,
-            vertex_spvs,
-            fragment_spvs,
-            shader_sets,
+            shader_sets: used_shader_sets,
         }
     }
 
     pub fn load_resources(
-        &self,
+        &mut self,
         engine: &Engine,
         desc_alloc_info: &DescriptorSetAllocateInfo,
     ) -> Vec<(
@@ -171,6 +218,7 @@ impl Scene {
         Vec<vk::VertexInputBindingDescription>,
         FragmentShader,
         Vec<vk::DescriptorSet>,
+        vk::PipelineInputAssemblyStateCreateInfo,
     )> {
         for mesh in self.meshes.iter() {
             mesh.load_mesh(engine)
@@ -179,7 +227,7 @@ impl Scene {
             material.load_textures(engine);
         }
         let mut result = Vec::new();
-        for i in 0..self.shader_sets {
+        for shader_set in self.shader_sets.iter() {
             unsafe {
                 let descriptor_sets = engine
                     .device
@@ -188,28 +236,37 @@ impl Scene {
                 let (vertex_shader, input_attribute_descriptions, input_binding_descriptions) =
                     VertexShader::new(
                         &engine,
-                        &self.vertex_spvs[i].borrow(),
+                        &shader_set.vertex_spv.borrow(),
                         &descriptor_sets,
                         DataOrganization::ObjectMajor,
                     );
                 let fragment_shader = FragmentShader::new(
                     &engine,
-                    &self.fragment_spvs[i].borrow(),
+                    &shader_set.fragment_spv.borrow(),
                     &self.objects,
                     &descriptor_sets,
                 );
-                self.vertex_spvs[i].borrow_mut().clear();
-                self.fragment_spvs[i].borrow_mut().clear();
+                shader_set.vertex_spv.borrow_mut().clear();
+                shader_set.fragment_spv.borrow_mut().clear();
+                let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo {
+                    topology: *shader_set.topology.get().unwrap(),
+                    ..Default::default()
+                };
                 result.push((
                     vertex_shader,
                     input_attribute_descriptions,
                     input_binding_descriptions,
                     fragment_shader,
                     descriptor_sets,
+                    vertex_input_assembly_state_info,
                 ))
             }
         }
         result
+    }
+
+    pub fn unique_shader_sets(&self) -> usize {
+        self.shader_sets.len()
     }
 }
 

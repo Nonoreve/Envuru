@@ -7,7 +7,7 @@ use engine::scene::Vertex;
 
 use crate::engine::controller::{Controller, KeyBind};
 use crate::engine::pipeline::Pipelines;
-use crate::engine::scene::{Camera, Material, Mesh, Object, Scene};
+use crate::engine::scene::{Camera, Material, Mesh, Object, Scene, ShaderSet};
 
 mod engine;
 
@@ -71,6 +71,14 @@ fn main() {
     let potoo = Rc::new(Material::new(vec![
         image::load_from_memory(include_bytes!("../resources/textures/potoo_asks.jpg")).unwrap(),
     ]));
+    let object_shader_set = Rc::new(ShaderSet::new(
+        include_bytes!("../target/vert.spv"),
+        include_bytes!("../target/frag.spv"),
+    ));
+    let line_shader_set = Rc::new(ShaderSet::new(
+        include_bytes!("../target/vert2.spv"),
+        include_bytes!("../target/frag2.spv"),
+    ));
     let demo_model = cgmath::Decomposed {
         scale: 1.0,
         rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(0.1)),
@@ -80,6 +88,7 @@ fn main() {
         mesh: Rc::clone(&rectangle_mesh),
         model: demo_model,
         material: Rc::clone(&charlie),
+        shader_set: Rc::clone(&object_shader_set),
     };
     let demo_model2 = cgmath::Decomposed {
         scale: 1.0,
@@ -90,6 +99,7 @@ fn main() {
         mesh: Rc::clone(&rectangle_mesh),
         model: demo_model2,
         material: Rc::clone(&charlie),
+        shader_set: Rc::clone(&line_shader_set),
     };
     let demo_model3 = cgmath::Decomposed {
         scale: 1.0,
@@ -100,25 +110,27 @@ fn main() {
         mesh: Rc::clone(&rectangle_mesh),
         model: demo_model3,
         material: Rc::clone(&potoo),
+        shader_set: Rc::clone(&object_shader_set),
     };
-    let demo_model4 = cgmath::Decomposed {
-        scale: 1.0,
-        rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(78.0)),
-        disp: cgmath::vec3(0.0, 0.0, 1.0),
-    };
-    let demo4 = Object {
-        mesh: Rc::clone(&rectangle_mesh),
-        model: demo_model4,
-        material: Rc::clone(&charlie),
-    };
+    // let demo_model4 = cgmath::Decomposed {
+    //     scale: 1.0,
+    //     rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(78.0)),
+    //     disp: cgmath::vec3(0.0, 0.0, 1.0),
+    // };
+    // let demo4 = Object {
+    //     mesh: Rc::clone(&rectangle_mesh),
+    //     model: demo_model4,
+    //     material: Rc::clone(&charlie),
+    //     shader_set: Rc::clone(&object_shader_set),
+    // };
     let meshes = vec![rectangle_mesh];
     let start_scene = Scene::new(
-        vec![include_bytes!("../target/vert.spv"), include_bytes!("../target/vert.spv")],
-        vec![include_bytes!("../target/frag.spv"), include_bytes!("../target/frag.spv")],
         camera,
+        Vec::default(),
+        vec![demo, demo2, demo3],
         meshes,
         vec![charlie, potoo],
-        vec![demo, demo2, demo3, demo4],
+        vec![line_shader_set, object_shader_set],
     );
     let scene_handle = engine_builder.register_scene(start_scene);
     engine_builder.start(scene_handle);

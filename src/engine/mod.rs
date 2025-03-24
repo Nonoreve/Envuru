@@ -469,7 +469,8 @@ impl Engine {
                         &render_pass_begin_info,
                         vk::SubpassContents::INLINE,
                     );
-                    for shader_set_index in 0..scene.shader_sets {
+                    for (obj_index, object) in scene.objects.iter().enumerate() {
+                        let shader_set_index = object.shader_set.get_index();
                         device.cmd_bind_pipeline(
                             draw_command_buffer,
                             vk::PipelineBindPoint::GRAPHICS,
@@ -477,41 +478,39 @@ impl Engine {
                         );
                         device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
                         device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
-                        for (obj_index, object) in scene.objects.iter().enumerate() {
-                            let mvp = MvpUbo {
-                                model: cgmath::Matrix4::from(object.model),
-                                view: cgmath::Matrix4::look_at_rh(
-                                    scene.camera.position,
-                                    scene.camera.direction,
-                                    cgmath::vec3(0.0, 0.0, 1.0),
-                                ),
-                                projection: cgmath::Matrix4::from(scene.camera.projection),
-                            };
-                            pipeline.update_uniforms(
-                                shader_set_index,
-                                mvp,
-                                current_frame * scene.objects.len() + obj_index,
-                            );
+                        let mvp = MvpUbo {
+                            model: cgmath::Matrix4::from(object.model),
+                            view: cgmath::Matrix4::look_at_rh(
+                                scene.camera.position,
+                                scene.camera.direction,
+                                cgmath::vec3(0.0, 0.0, 1.0),
+                            ),
+                            projection: cgmath::Matrix4::from(scene.camera.projection),
+                        };
+                        pipeline.update_uniforms(
+                            shader_set_index,
+                            mvp,
+                            current_frame * scene.objects.len() + obj_index,
+                        );
 
-                            object.mesh.bind_buffers(self, current_frame);
-                            device.cmd_bind_descriptor_sets(
-                                draw_command_buffer,
-                                vk::PipelineBindPoint::GRAPHICS,
-                                pipeline.pipeline_layout,
-                                0,
-                                &[pipeline.descriptors_sets[shader_set_index]
-                                    [current_frame * scene.objects.len() + obj_index]],
-                                &[],
-                            );
-                            device.cmd_draw_indexed(
-                                draw_command_buffer,
-                                object.mesh.get_index_count(),
-                                1,
-                                0,
-                                0,
-                                1,
-                            );
-                        }
+                        object.mesh.bind_buffers(self, current_frame);
+                        device.cmd_bind_descriptor_sets(
+                            draw_command_buffer,
+                            vk::PipelineBindPoint::GRAPHICS,
+                            pipeline.pipeline_layout,
+                            0,
+                            &[pipeline.descriptors_sets[shader_set_index]
+                                [current_frame * scene.objects.len() + obj_index]],
+                            &[],
+                        );
+                        device.cmd_draw_indexed(
+                            draw_command_buffer,
+                            object.mesh.get_index_count(),
+                            1,
+                            0,
+                            0,
+                            1,
+                        );
                     }
                     device.cmd_end_render_pass(draw_command_buffer);
                 },
