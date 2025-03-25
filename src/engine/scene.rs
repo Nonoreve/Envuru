@@ -2,7 +2,6 @@ use std::cell::{OnceCell, RefCell};
 use std::io::Cursor;
 use std::rc::Rc;
 
-use ash::vk::DescriptorSetAllocateInfo;
 use ash::{util, vk};
 
 use crate::engine::Engine;
@@ -121,6 +120,7 @@ impl Object {
 }
 
 pub struct Line {
+    pub mesh: Rc<Mesh>,
     pub model: cgmath::Decomposed<cgmath::Vector3<f32>, cgmath::Quaternion<f32>>,
     pub shader_set: Rc<ShaderSet>,
 }
@@ -169,7 +169,8 @@ impl Scene {
         meshes: Vec<Rc<Mesh>>,
         materials: Vec<Rc<Material>>,
         shader_sets: Vec<Rc<ShaderSet>>,
-    ) -> Self {
+    ) -> Self {// TODO check all meshes and materials used in lines and objects are given in the dedicated array
+        // or even better, create the dedicated arrays by collecting them from objs and lines
         for object in objects.iter_mut() {
             if object.shader_set.topology.get().is_none() {
                 object
@@ -211,7 +212,8 @@ impl Scene {
     pub fn load_resources(
         &mut self,
         engine: &Engine,
-        desc_alloc_info: &DescriptorSetAllocateInfo,
+        object_desc_alloc_info: &vk::DescriptorSetAllocateInfo,
+        line_desc_alloc_info: &vk::DescriptorSetAllocateInfo,
     ) -> Vec<(
         VertexShader,
         Vec<vk::VertexInputAttributeDescription>,
@@ -228,11 +230,20 @@ impl Scene {
         }
         let mut result = Vec::new();
         for shader_set in self.shader_sets.iter() {
+            let topology = *shader_set.topology.get().unwrap();
             unsafe {
-                let descriptor_sets = engine
-                    .device
-                    .allocate_descriptor_sets(desc_alloc_info)
-                    .unwrap();
+                let descriptor_sets = if topology == vk::PrimitiveTopology::TRIANGLE_LIST {
+                    engine
+                        .device
+                        .allocate_descriptor_sets(object_desc_alloc_info)
+                        .unwrap()
+                } else {
+                    assert_eq!(topology, vk::PrimitiveTopology::LINE_LIST);
+                    engine
+                        .device
+                        .allocate_descriptor_sets(line_desc_alloc_info)
+                        .unwrap()
+                };
                 let (vertex_shader, input_attribute_descriptions, input_binding_descriptions) =
                     VertexShader::new(
                         &engine,
@@ -245,11 +256,12 @@ impl Scene {
                     &shader_set.fragment_spv.borrow(),
                     &self.objects,
                     &descriptor_sets,
+                    topology,
                 );
                 shader_set.vertex_spv.borrow_mut().clear();
                 shader_set.fragment_spv.borrow_mut().clear();
                 let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo {
-                    topology: *shader_set.topology.get().unwrap(),
+                    topology,
                     ..Default::default()
                 };
                 result.push((
@@ -263,10 +275,6 @@ impl Scene {
             }
         }
         result
-    }
-
-    pub fn unique_shader_sets(&self) -> usize {
-        self.shader_sets.len()
     }
 }
 

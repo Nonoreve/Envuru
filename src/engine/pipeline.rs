@@ -10,9 +10,9 @@ pub struct Pipelines {
     pub renderpass: vk::RenderPass,
     pub framebuffers: mem::ManuallyDrop<Vec<vk::Framebuffer>>,
     pub graphics_pipelines: mem::ManuallyDrop<Vec<vk::Pipeline>>,
-    pub pipeline_layout: vk::PipelineLayout,
+    pub pipeline_layouts: [vk::PipelineLayout; 2],
     pub frames: u64,
-    descriptor_set_layout: vk::DescriptorSetLayout,
+    descriptor_set_layouts: [vk::DescriptorSetLayout; 2],
     descriptor_pool: vk::DescriptorPool,
     pub descriptors_sets: Vec<Vec<vk::DescriptorSet>>,
     pub aspect_ratio: f32,
@@ -69,7 +69,7 @@ impl Pipelines {
                 .device
                 .create_render_pass(&renderpass_create_info, None)
                 .unwrap();
-            let desc_layout_bindings = [
+            let object_desc_layout_bindings = [
                 vk::DescriptorSetLayoutBinding {
                     binding: 0,
                     descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
@@ -85,11 +85,24 @@ impl Pipelines {
                     ..Default::default()
                 },
             ];
-            let descriptor_info =
-                vk::DescriptorSetLayoutCreateInfo::default().bindings(&desc_layout_bindings);
-            let descriptor_set_layout = engine
+            let line_desc_layout_bindings = [vk::DescriptorSetLayoutBinding {
+                binding: 0,
+                descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+                descriptor_count: 1,
+                stage_flags: vk::ShaderStageFlags::VERTEX,
+                ..Default::default()
+            }];
+            let object_descriptor_info =
+                vk::DescriptorSetLayoutCreateInfo::default().bindings(&object_desc_layout_bindings);
+            let line_descriptor_info =
+                vk::DescriptorSetLayoutCreateInfo::default().bindings(&line_desc_layout_bindings);
+            let object_descriptor_set_layout = engine
                 .device
-                .create_descriptor_set_layout(&descriptor_info, None)
+                .create_descriptor_set_layout(&object_descriptor_info, None)
+                .unwrap();
+            let line_descriptor_set_layout = engine
+                .device
+                .create_descriptor_set_layout(&line_descriptor_info, None)
                 .unwrap();
             let framebuffers: Vec<vk::Framebuffer> = engine
                 .swapchain
@@ -114,34 +127,56 @@ impl Pipelines {
                 vk::DescriptorPoolSize {
                     ty: vk::DescriptorType::UNIFORM_BUFFER,
                     descriptor_count: MAX_FRAMES_IN_FLIGHT
-                        * (scene.unique_shader_sets() * scene.objects.len()) as u32,
+                        * (scene.objects.len() + scene.lines.len()) as u32,
                 },
                 vk::DescriptorPoolSize {
                     ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    descriptor_count: MAX_FRAMES_IN_FLIGHT
-                        * (scene.unique_shader_sets() * scene.objects.len()) as u32,
+                    descriptor_count: MAX_FRAMES_IN_FLIGHT * scene.objects.len() as u32,
                 },
             ];
             let descriptor_pool_info = vk::DescriptorPoolCreateInfo::default()
                 .pool_sizes(&descriptor_sizes)
-                .max_sets(MAX_FRAMES_IN_FLIGHT * (scene.unique_shader_sets() * scene.objects.len()) as u32);
+                .max_sets(MAX_FRAMES_IN_FLIGHT * (scene.objects.len() + scene.lines.len()) as u32);
             let descriptor_pool = engine
                 .device
                 .create_descriptor_pool(&descriptor_pool_info, None)
                 .unwrap();
-            let desc_set_layouts: Vec<vk::DescriptorSetLayout> = (0..MAX_FRAMES_IN_FLIGHT
-                * scene.objects.len() as u32)
-                .map(|_| descriptor_set_layout.clone())
+            let object_desc_set_layouts: Vec<vk::DescriptorSetLayout> = (0
+                ..MAX_FRAMES_IN_FLIGHT * scene.objects.len() as u32)
+                .map(|_| object_descriptor_set_layout.clone())
                 .collect();
-            let desc_alloc_info = vk::DescriptorSetAllocateInfo::default()
+            let line_desc_set_layouts: Vec<vk::DescriptorSetLayout> = (0..MAX_FRAMES_IN_FLIGHT
+                * scene.lines.len() as u32)
+                .map(|_| line_descriptor_set_layout.clone())
+                .collect();
+            let object_desc_alloc_info = vk::DescriptorSetAllocateInfo::default()
                 .descriptor_pool(descriptor_pool)
-                .set_layouts(&desc_set_layouts);
-            let layout_create_info =
-                vk::PipelineLayoutCreateInfo::default().set_layouts(&desc_set_layouts[..1]);
-            let pipeline_layout = engine
-                .device
-                .create_pipeline_layout(&layout_create_info, None)
-                .unwrap();
+                .set_layouts(&object_desc_set_layouts);
+            let line_desc_alloc_info = vk::DescriptorSetAllocateInfo::default()
+                .descriptor_pool(descriptor_pool)
+                .set_layouts(&line_desc_set_layouts);
+            let object_layout_create_info =
+                vk::PipelineLayoutCreateInfo::default().set_layouts(&object_desc_set_layouts[..1]);
+            let line_layout_create_info =
+                vk::PipelineLayoutCreateInfo::default().set_layouts(&line_desc_set_layouts[..1]);
+            // let object_pipeline_layout = engine
+            //     .device
+            //     .create_pipeline_layout(&object_layout_create_info, None)
+            //     .unwrap();
+            // let line_pipeline_layout = engine
+            //     .device
+            //     .create_pipeline_layout(&line_layout_create_info, None)
+            //     .unwrap();
+            let pipeline_layouts = [
+                engine
+                    .device
+                    .create_pipeline_layout(&object_layout_create_info, None)
+                    .unwrap(),
+                engine
+                    .device
+                    .create_pipeline_layout(&line_layout_create_info, None)
+                    .unwrap(),
+            ];
             let viewport_state_info = vk::PipelineViewportStateCreateInfo {
                 viewport_count: 1,
                 scissor_count: 1,
@@ -197,7 +232,9 @@ impl Pipelines {
             let mut descriptors_sets = Vec::new();
             let mut shader_stages_create_infos = Vec::new();
             let mut vertex_input_assembly_state_infos = Vec::new();
-            for tuple in scene.load_resources(engine, &desc_alloc_info) {
+            for tuple in
+                scene.load_resources(engine, &object_desc_alloc_info, &line_desc_alloc_info)
+            {
                 let (
                     vertex_shader,
                     input_attribute_descriptions,
@@ -249,14 +286,14 @@ impl Pipelines {
                     .depth_stencil_state(&depth_state_info)
                     .color_blend_state(&color_blend_state)
                     .dynamic_state(&dynamic_state_info)
-                    .layout(pipeline_layout)
+                    .layout(pipeline_layouts[i])
                     .render_pass(renderpass);
                 graphic_pipeline_infos.push(graphic_pipeline_info)
             }
             let graphics_pipelines = engine
                 .device
                 .create_graphics_pipelines(
-                    vk::PipelineCache::null(),
+                    vk::PipelineCache::null(), // TODO pipeline cache
                     graphic_pipeline_infos.as_slice(),
                     None,
                 )
@@ -267,9 +304,9 @@ impl Pipelines {
                 renderpass,
                 framebuffers: mem::ManuallyDrop::new(framebuffers),
                 graphics_pipelines: mem::ManuallyDrop::new(graphics_pipelines),
-                pipeline_layout,
+                pipeline_layouts,
                 frames: 0,
-                descriptor_set_layout,
+                descriptor_set_layouts: [object_descriptor_set_layout, line_descriptor_set_layout],
                 descriptor_pool,
                 descriptors_sets,
                 aspect_ratio,
@@ -337,7 +374,10 @@ impl Pipelines {
             }
             engine
                 .device
-                .destroy_pipeline_layout(self.pipeline_layout, None);
+                .destroy_pipeline_layout(self.pipeline_layouts[0], None);
+            engine
+                .device
+                .destroy_pipeline_layout(self.pipeline_layouts[1], None);
             let vertex_shaders = mem::ManuallyDrop::take(&mut self.vertex_shaders);
             for vertex_shader in vertex_shaders {
                 vertex_shader.delete(engine);
@@ -354,7 +394,10 @@ impl Pipelines {
             }
             engine
                 .device
-                .destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+                .destroy_descriptor_set_layout(self.descriptor_set_layouts[0], None);
+            engine
+                .device
+                .destroy_descriptor_set_layout(self.descriptor_set_layouts[1], None);
             engine
                 .device
                 .destroy_descriptor_pool(self.descriptor_pool, None);

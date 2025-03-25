@@ -7,7 +7,7 @@ use engine::scene::Vertex;
 
 use crate::engine::controller::{Controller, KeyBind};
 use crate::engine::pipeline::Pipelines;
-use crate::engine::scene::{Camera, Material, Mesh, Object, Scene, ShaderSet};
+use crate::engine::scene::{Camera, Line, Material, Mesh, Object, Scene, ShaderSet};
 
 mod engine;
 
@@ -30,7 +30,7 @@ fn main() {
         KeyActions::FORWARD as usize,
         KeyBind::new(keyboard::PhysicalKey::Code(keyboard::KeyCode::KeyQ)),
     );
-    let mut engine_builder = engine::EngineBuilder::new(960, 540, "Envuru", update, controller);
+    let mut engine_builder = engine::EngineBuilder::new(69*15, 42*15, "Envuru", update, controller);
     let projection = cgmath::PerspectiveFov {
         fovy: cgmath::Rad::from(cgmath::Deg(45.0)),
         aspect: 1.0,
@@ -60,9 +60,31 @@ fn main() {
             uv: cgmath::vec2(1.0, 0.0),
         },
     ];
+    let rectangle_vertices2 = [
+        Vertex {
+            pos: cgmath::vec4(-1.0, -1.0, 0.0, 1.0),
+            uv: cgmath::vec2(0.0, 0.0),
+        },
+        Vertex {
+            pos: cgmath::vec4(-1.0, 1.0, 0.0, 1.0),
+            uv: cgmath::vec2(0.0, 2.0),
+        },
+        Vertex {
+            pos: cgmath::vec4(1.0, 1.0, 0.0, 1.0),
+            uv: cgmath::vec2(2.0, 2.0),
+        },
+        Vertex {
+            pos: cgmath::vec4(1.0, -1.0, 0.0, 1.0),
+            uv: cgmath::vec2(2.0, 0.0),
+        },
+    ];
     let rectangle_indices = [0u32, 1, 2, 2, 3, 0];
     let rectangle_mesh = Rc::new(Mesh::new(
         rectangle_vertices.into(),
+        rectangle_indices.into(),
+    ));
+    let rectangle_mesh2 = Rc::new(Mesh::new(
+        rectangle_vertices2.into(),
         rectangle_indices.into(),
     ));
     let charlie = Rc::new(Material::new(vec![
@@ -72,12 +94,12 @@ fn main() {
         image::load_from_memory(include_bytes!("../resources/textures/potoo_asks.jpg")).unwrap(),
     ]));
     let object_shader_set = Rc::new(ShaderSet::new(
-        include_bytes!("../target/vert.spv"),
-        include_bytes!("../target/frag.spv"),
+        include_bytes!("../target/object_vert.spv"),
+        include_bytes!("../target/object_frag.spv"),
     ));
     let line_shader_set = Rc::new(ShaderSet::new(
-        include_bytes!("../target/vert2.spv"),
-        include_bytes!("../target/frag2.spv"),
+        include_bytes!("../target/line_vert.spv"),
+        include_bytes!("../target/line_frag.spv"),
     ));
     let demo_model = cgmath::Decomposed {
         scale: 1.0,
@@ -96,10 +118,10 @@ fn main() {
         disp: cgmath::vec3(1.0, 0.0, 0.0),
     };
     let demo2 = Object {
-        mesh: Rc::clone(&rectangle_mesh),
+        mesh: Rc::clone(&rectangle_mesh2),
         model: demo_model2,
         material: Rc::clone(&charlie),
-        shader_set: Rc::clone(&line_shader_set),
+        shader_set: Rc::clone(&object_shader_set),
     };
     let demo_model3 = cgmath::Decomposed {
         scale: 1.0,
@@ -112,25 +134,35 @@ fn main() {
         material: Rc::clone(&potoo),
         shader_set: Rc::clone(&object_shader_set),
     };
-    // let demo_model4 = cgmath::Decomposed {
-    //     scale: 1.0,
-    //     rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(78.0)),
-    //     disp: cgmath::vec3(0.0, 0.0, 1.0),
-    // };
-    // let demo4 = Object {
-    //     mesh: Rc::clone(&rectangle_mesh),
-    //     model: demo_model4,
-    //     material: Rc::clone(&charlie),
-    //     shader_set: Rc::clone(&object_shader_set),
-    // };
-    let meshes = vec![rectangle_mesh];
+    let line_vertices = [
+        Vertex {
+            pos: cgmath::vec4(-1.0, -1.0, 0.0, 1.0),
+            uv: cgmath::vec2(0.0, 0.0),
+        },
+        Vertex {
+            pos: cgmath::vec4(-1.0, 1.0, 0.0, 1.0),
+            uv: cgmath::vec2(0.0, 1.0),
+        },
+    ];
+    let line_indices = [0u32, 1];
+    let line_mesh = Rc::new(Mesh::new(line_vertices.into(), line_indices.into()));
+    let line_model = cgmath::Decomposed {
+        scale: 1.0,
+        rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(78.0)),
+        disp: cgmath::vec3(0.0, 0.0, 0.0),
+    };
+    let line = Line {
+        mesh: Rc::clone(&line_mesh),
+        model: line_model,
+        shader_set: Rc::clone(&line_shader_set),
+    };
     let start_scene = Scene::new(
         camera,
-        Vec::default(),
+        vec![line],
         vec![demo, demo2, demo3],
-        meshes,
+        vec![rectangle_mesh, rectangle_mesh2, line_mesh],
         vec![charlie, potoo],
-        vec![line_shader_set, object_shader_set],
+        vec![object_shader_set, line_shader_set],
     );
     let scene_handle = engine_builder.register_scene(start_scene);
     engine_builder.start(scene_handle);

@@ -115,7 +115,7 @@ impl GraphicsBuffer {
 pub struct VertexBuffer(GraphicsBuffer);
 
 impl VertexBuffer {
-    pub fn new(engine: &Engine, vertices: &[Vertex], style: DataOrganization) -> Self {
+    pub fn new(engine: &Engine, vertices: &[Vertex], _style: DataOrganization) -> Self { // TODO DataOrganization
         let source_size = size_of_val(vertices.as_ref());
         let mut create_info = vk::BufferCreateInfo {
             size: source_size as vk::DeviceSize,

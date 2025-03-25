@@ -497,7 +497,7 @@ impl Engine {
                         device.cmd_bind_descriptor_sets(
                             draw_command_buffer,
                             vk::PipelineBindPoint::GRAPHICS,
-                            pipeline.pipeline_layout,
+                            pipeline.pipeline_layouts[shader_set_index],
                             0,
                             &[pipeline.descriptors_sets[shader_set_index]
                                 [current_frame * scene.objects.len() + obj_index]],
@@ -506,6 +506,49 @@ impl Engine {
                         device.cmd_draw_indexed(
                             draw_command_buffer,
                             object.mesh.get_index_count(),
+                            1,
+                            0,
+                            0,
+                            1,
+                        );
+                    }
+                    for (line_index, line) in scene.lines.iter().enumerate() {
+                        let shader_set_index = line.shader_set.get_index();
+                        device.cmd_bind_pipeline(
+                            draw_command_buffer,
+                            vk::PipelineBindPoint::GRAPHICS,
+                            pipeline.graphics_pipelines[shader_set_index],
+                        );
+                        device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
+                        device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
+                        let mvp = MvpUbo {
+                            model: cgmath::Matrix4::from(line.model),
+                            view: cgmath::Matrix4::look_at_rh(
+                                scene.camera.position,
+                                scene.camera.direction,
+                                cgmath::vec3(0.0, 0.0, 1.0),
+                            ),
+                            projection: cgmath::Matrix4::from(scene.camera.projection),
+                        };
+                        pipeline.update_uniforms(
+                            shader_set_index,
+                            mvp,
+                            current_frame * scene.lines.len() + line_index,
+                        );
+
+                        line.mesh.bind_buffers(self, current_frame);
+                        device.cmd_bind_descriptor_sets(
+                            draw_command_buffer,
+                            vk::PipelineBindPoint::GRAPHICS,
+                            pipeline.pipeline_layouts[shader_set_index],
+                            0,
+                            &[pipeline.descriptors_sets[shader_set_index]
+                                [current_frame * scene.lines.len() + line_index]],
+                            &[],
+                        );
+                        device.cmd_draw_indexed(
+                            draw_command_buffer,
+                            line.mesh.get_index_count(),
                             1,
                             0,
                             0,

@@ -11,5 +11,5 @@ args = parser.parse_args()
 glsc_location = "/home/nonoreve/Stuff/VulkanSDK/x86_64/bin/glslc"
 
 for pair in args.required_shader_pairs:
-    subprocess.run(f"{glsc_location} {args.shaders_location}/{pair}.vert -o {args.spv_output}/vert.spv", shell=True)
-    subprocess.run(f"{glsc_location} {args.shaders_location}/{pair}.frag -o {args.spv_output}/frag.spv", shell=True)
+    subprocess.run(f"{glsc_location} {args.shaders_location}/{pair}.vert -o {args.spv_output}/{pair}_vert.spv", shell=True)
+    subprocess.run(f"{glsc_location} {args.shaders_location}/{pair}.frag -o {args.spv_output}/{pair}_frag.spv", shell=True)

@@ -1,9 +1,10 @@
 use std::mem;
 
+use ash::vk;
+
 use crate::engine::Engine;
 use crate::engine::memory::{DataOrganization, UniformBuffer};
 use crate::engine::scene::{MvpUbo, Object, Vertex};
-use ash::vk;
 
 #[macro_export]
 macro_rules! offset_of {
@@ -27,7 +28,7 @@ impl VertexShader {
         engine: &Engine,
         spv_data: &Vec<u32>,
         descriptor_sets: &Vec<vk::DescriptorSet>,
-        style: DataOrganization,
+        _style: DataOrganization, // TODO DataOrganization
     ) -> (
         VertexShader,
         Vec<vk::VertexInputAttributeDescription>,
@@ -107,6 +108,7 @@ impl FragmentShader {
         spv_data: &Vec<u32>,
         objects: &Vec<Object>,
         descriptor_sets: &Vec<vk::DescriptorSet>,
+        topology: vk::PrimitiveTopology,
     ) -> Self {
         let sampler_info = vk::SamplerCreateInfo {
             flags: Default::default(),
@@ -130,23 +132,24 @@ impl FragmentShader {
 
         unsafe {
             let sampler = engine.device.create_sampler(&sampler_info, None).unwrap();
-
-            for (i, descriptor_set) in descriptor_sets.iter().enumerate() {
-                let tex_descriptor = objects
-                    .get(i % objects.len())
-                    .unwrap()
-                    .material
-                    .get_descriptor_image_info(sampler, 0);
-                let write_desc_sets = [vk::WriteDescriptorSet {
-                    dst_set: descriptor_set.clone(),
-                    dst_binding: 1,
-                    dst_array_element: 0,
-                    descriptor_count: 1,
-                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    p_image_info: &tex_descriptor,
-                    ..Default::default()
-                }];
-                engine.device.update_descriptor_sets(&write_desc_sets, &[]);
+            if topology == vk::PrimitiveTopology::TRIANGLE_LIST {
+                for (i, descriptor_set) in descriptor_sets.iter().enumerate() {
+                    let tex_descriptor = objects
+                        .get(i % objects.len())
+                        .unwrap()
+                        .material
+                        .get_descriptor_image_info(sampler, 0);
+                    let write_desc_sets = [vk::WriteDescriptorSet {
+                        dst_set: descriptor_set.clone(),
+                        dst_binding: 1,
+                        dst_array_element: 0,
+                        descriptor_count: 1,
+                        descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                        p_image_info: &tex_descriptor,
+                        ..Default::default()
+                    }];
+                    engine.device.update_descriptor_sets(&write_desc_sets, &[]);
+                }
             }
             let frag_shader_info = vk::ShaderModuleCreateInfo::default().code(spv_data);
             let fragment_shader_module = engine
