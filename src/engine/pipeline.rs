@@ -1,4 +1,6 @@
-use std::{ffi, mem};
+use std::collections::HashMap;
+use std::ffi;
+use std::mem::ManuallyDrop;
 
 use ash::{util, vk};
 
@@ -8,16 +10,16 @@ use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT};
 
 pub struct Pipelines {
     pub renderpass: vk::RenderPass,
-    pub framebuffers: mem::ManuallyDrop<Vec<vk::Framebuffer>>,
-    pub graphics_pipelines: mem::ManuallyDrop<Vec<vk::Pipeline>>,
-    pub pipeline_layouts: [vk::PipelineLayout; 2],
+    pub framebuffers: ManuallyDrop<Vec<vk::Framebuffer>>,
+    pub graphics_pipelines: ManuallyDrop<Vec<vk::Pipeline>>,
+    pub pipeline_layouts: ManuallyDrop<Vec<vk::PipelineLayout>>,
     pub frames: u64,
-    descriptor_set_layouts: [vk::DescriptorSetLayout; 2],
+    descriptor_set_layouts: ManuallyDrop<Vec<vk::DescriptorSetLayout>>,
     descriptor_pool: vk::DescriptorPool,
     pub descriptors_sets: Vec<Vec<vk::DescriptorSet>>,
     pub aspect_ratio: f32,
-    vertex_shaders: mem::ManuallyDrop<Vec<VertexShader>>,
-    fragment_shaders: mem::ManuallyDrop<Vec<FragmentShader>>,
+    vertex_shaders: ManuallyDrop<Vec<VertexShader>>,
+    fragment_shaders: ManuallyDrop<Vec<FragmentShader>>,
 }
 
 impl Pipelines {
@@ -69,41 +71,6 @@ impl Pipelines {
                 .device
                 .create_render_pass(&renderpass_create_info, None)
                 .unwrap();
-            let object_desc_layout_bindings = [
-                vk::DescriptorSetLayoutBinding {
-                    binding: 0,
-                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
-                    descriptor_count: 1,
-                    stage_flags: vk::ShaderStageFlags::VERTEX,
-                    ..Default::default()
-                },
-                vk::DescriptorSetLayoutBinding {
-                    binding: 1,
-                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    descriptor_count: 1,
-                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
-                    ..Default::default()
-                },
-            ];
-            let line_desc_layout_bindings = [vk::DescriptorSetLayoutBinding {
-                binding: 0,
-                descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
-                descriptor_count: 1,
-                stage_flags: vk::ShaderStageFlags::VERTEX,
-                ..Default::default()
-            }];
-            let object_descriptor_info =
-                vk::DescriptorSetLayoutCreateInfo::default().bindings(&object_desc_layout_bindings);
-            let line_descriptor_info =
-                vk::DescriptorSetLayoutCreateInfo::default().bindings(&line_desc_layout_bindings);
-            let object_descriptor_set_layout = engine
-                .device
-                .create_descriptor_set_layout(&object_descriptor_info, None)
-                .unwrap();
-            let line_descriptor_set_layout = engine
-                .device
-                .create_descriptor_set_layout(&line_descriptor_info, None)
-                .unwrap();
             let framebuffers: Vec<vk::Framebuffer> = engine
                 .swapchain
                 .present_image_views
@@ -123,17 +90,10 @@ impl Pipelines {
                         .unwrap()
                 })
                 .collect();
-            let descriptor_sizes = [
-                vk::DescriptorPoolSize {
-                    ty: vk::DescriptorType::UNIFORM_BUFFER,
-                    descriptor_count: MAX_FRAMES_IN_FLIGHT
-                        * (scene.objects.len() + scene.lines.len()) as u32,
-                },
-                vk::DescriptorPoolSize {
-                    ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    descriptor_count: MAX_FRAMES_IN_FLIGHT * scene.objects.len() as u32,
-                },
-            ];
+            let mut descriptor_sizes = scene.get_pool_sizes();
+            descriptor_sizes.iter_mut().for_each(|e| {
+                e.descriptor_count *= MAX_FRAMES_IN_FLIGHT;
+            });
             let descriptor_pool_info = vk::DescriptorPoolCreateInfo::default()
                 .pool_sizes(&descriptor_sizes)
                 .max_sets(MAX_FRAMES_IN_FLIGHT * (scene.objects.len() + scene.lines.len()) as u32);
@@ -141,51 +101,35 @@ impl Pipelines {
                 .device
                 .create_descriptor_pool(&descriptor_pool_info, None)
                 .unwrap();
-            let object_desc_set_layouts: Vec<vk::DescriptorSetLayout> = (0
-                ..MAX_FRAMES_IN_FLIGHT * scene.objects.len() as u32)
-                .map(|_| object_descriptor_set_layout.clone())
-                .collect();
-            let line_desc_set_layouts: Vec<vk::DescriptorSetLayout> = (0..MAX_FRAMES_IN_FLIGHT
-                * scene.lines.len() as u32)
-                .map(|_| line_descriptor_set_layout.clone())
-                .collect();
-            let object_desc_alloc_info = vk::DescriptorSetAllocateInfo::default()
-                .descriptor_pool(descriptor_pool)
-                .set_layouts(&object_desc_set_layouts);
-            let line_desc_alloc_info = vk::DescriptorSetAllocateInfo::default()
-                .descriptor_pool(descriptor_pool)
-                .set_layouts(&line_desc_set_layouts);
-            let object_layout_create_info =
-                vk::PipelineLayoutCreateInfo::default().set_layouts(&object_desc_set_layouts[..1]);
-            let line_layout_create_info =
-                vk::PipelineLayoutCreateInfo::default().set_layouts(&line_desc_set_layouts[..1]);
-            // let object_pipeline_layout = engine
-            //     .device
-            //     .create_pipeline_layout(&object_layout_create_info, None)
-            //     .unwrap();
-            // let line_pipeline_layout = engine
-            //     .device
-            //     .create_pipeline_layout(&line_layout_create_info, None)
-            //     .unwrap();
-            let pipeline_layouts = [
-                engine
+            let descriptor_set_layouts = scene.get_descriptor_set_layouts(engine);
+            let mut duplicated_set_layouts = HashMap::new();
+            for (shader_set, descriptor_set_layout) in descriptor_set_layouts.iter() {
+                let desc_set_layouts: Vec<vk::DescriptorSetLayout> = (0..MAX_FRAMES_IN_FLIGHT
+                    * scene.get_shader_set_users(shader_set))
+                    .map(|_| descriptor_set_layout.clone())
+                    .collect();
+                duplicated_set_layouts.insert(shader_set.clone(), desc_set_layouts);
+            }
+            let mut desc_alloc_infos = HashMap::new();
+            for (shader_set, duplicated_set_layout) in duplicated_set_layouts.iter() {
+                let desc_alloc_info = vk::DescriptorSetAllocateInfo::default()
+                    .descriptor_pool(descriptor_pool)
+                    .set_layouts(&duplicated_set_layout);
+                desc_alloc_infos.insert(shader_set.clone(), desc_alloc_info);
+            }
+            let mut pipeline_layouts = Vec::new();
+            for (_shader_set, duplicated_set_layout) in duplicated_set_layouts.iter() {
+                let layout_create_info =
+                    vk::PipelineLayoutCreateInfo::default().set_layouts(&duplicated_set_layout);
+                let pipeline_layout = engine
                     .device
-                    .create_pipeline_layout(&object_layout_create_info, None)
-                    .unwrap(),
-                engine
-                    .device
-                    .create_pipeline_layout(&line_layout_create_info, None)
-                    .unwrap(),
-            ];
+                    .create_pipeline_layout(&layout_create_info, None)
+                    .unwrap();
+                pipeline_layouts.push(pipeline_layout);
+            }
             let viewport_state_info = vk::PipelineViewportStateCreateInfo {
                 viewport_count: 1,
                 scissor_count: 1,
-                ..Default::default()
-            };
-            let rasterization_info = vk::PipelineRasterizationStateCreateInfo {
-                front_face: vk::FrontFace::COUNTER_CLOCKWISE,
-                line_width: 1.0,
-                polygon_mode: vk::PolygonMode::FILL,
                 ..Default::default()
             };
             let multisample_state_info = vk::PipelineMultisampleStateCreateInfo {
@@ -232,9 +176,8 @@ impl Pipelines {
             let mut descriptors_sets = Vec::new();
             let mut shader_stages_create_infos = Vec::new();
             let mut vertex_input_assembly_state_infos = Vec::new();
-            for tuple in
-                scene.load_resources(engine, &object_desc_alloc_info, &line_desc_alloc_info)
-            {
+            let mut rasterization_infos = Vec::new();
+            for tuple in scene.load_resources(engine, &desc_alloc_infos) {
                 let (
                     vertex_shader,
                     input_attribute_descriptions,
@@ -242,6 +185,7 @@ impl Pipelines {
                     fragment_shader,
                     descriptor_sets,
                     vertex_input_assembly_state_info,
+                    rasterization_info,
                 ) = tuple;
                 let shader_stage_create_infos = [
                     vk::PipelineShaderStageCreateInfo {
@@ -265,7 +209,8 @@ impl Pipelines {
                 vertex_shaders.push(vertex_shader);
                 fragment_shaders.push(fragment_shader);
                 shader_stages_create_infos.push(shader_stage_create_infos);
-                vertex_input_assembly_state_infos.push(vertex_input_assembly_state_info)
+                vertex_input_assembly_state_infos.push(vertex_input_assembly_state_info);
+                rasterization_infos.push(rasterization_info)
             }
             let mut vertex_input_state_infos = Vec::new();
             for i in 0..vertex_shaders.len() {
@@ -281,7 +226,7 @@ impl Pipelines {
                     .vertex_input_state(&vertex_input_state_infos[i])
                     .input_assembly_state(&vertex_input_assembly_state_infos[i])
                     .viewport_state(&viewport_state_info)
-                    .rasterization_state(&rasterization_info)
+                    .rasterization_state(&rasterization_infos[i])
                     .multisample_state(&multisample_state_info)
                     .depth_stencil_state(&depth_state_info)
                     .color_blend_state(&color_blend_state)
@@ -302,16 +247,18 @@ impl Pipelines {
                 / engine.swapchain.surface_resolution.height as f32;
             Pipelines {
                 renderpass,
-                framebuffers: mem::ManuallyDrop::new(framebuffers),
-                graphics_pipelines: mem::ManuallyDrop::new(graphics_pipelines),
-                pipeline_layouts,
+                framebuffers: ManuallyDrop::new(framebuffers),
+                graphics_pipelines: ManuallyDrop::new(graphics_pipelines),
+                pipeline_layouts: ManuallyDrop::new(pipeline_layouts),
                 frames: 0,
-                descriptor_set_layouts: [object_descriptor_set_layout, line_descriptor_set_layout],
+                descriptor_set_layouts: ManuallyDrop::new(
+                    descriptor_set_layouts.into_values().collect(),
+                ),
                 descriptor_pool,
                 descriptors_sets,
                 aspect_ratio,
-                vertex_shaders: mem::ManuallyDrop::new(vertex_shaders),
-                fragment_shaders: mem::ManuallyDrop::new(fragment_shaders),
+                vertex_shaders: ManuallyDrop::new(vertex_shaders),
+                fragment_shaders: ManuallyDrop::new(fragment_shaders),
             }
         }
     }
@@ -337,7 +284,7 @@ impl Pipelines {
                         .unwrap()
                 })
                 .collect();
-            self.framebuffers = mem::ManuallyDrop::new(framebuffers)
+            self.framebuffers = ManuallyDrop::new(framebuffers)
         }
     }
 
@@ -358,7 +305,7 @@ impl Pipelines {
 
     pub fn delete_framebuffers(&mut self, engine: &Engine) {
         unsafe {
-            let framebuffers = mem::ManuallyDrop::take(&mut self.framebuffers);
+            let framebuffers = ManuallyDrop::take(&mut self.framebuffers);
             for framebuffer in framebuffers {
                 engine.device.destroy_framebuffer(framebuffer, None);
             }
@@ -368,40 +315,38 @@ impl Pipelines {
     pub fn delete(&mut self, engine: &Engine, scene: &mut Scene) {
         unsafe {
             engine.device.device_wait_idle().unwrap();
-            let graphics_pipelines = mem::ManuallyDrop::take(&mut self.graphics_pipelines);
+            let graphics_pipelines = ManuallyDrop::take(&mut self.graphics_pipelines);
             for pipeline in graphics_pipelines {
                 engine.device.destroy_pipeline(pipeline, None);
             }
-            engine
-                .device
-                .destroy_pipeline_layout(self.pipeline_layouts[0], None);
-            engine
-                .device
-                .destroy_pipeline_layout(self.pipeline_layouts[1], None);
-            let vertex_shaders = mem::ManuallyDrop::take(&mut self.vertex_shaders);
+            let pipeline_layouts = ManuallyDrop::take(&mut self.pipeline_layouts);
+            for pipeline_layout in pipeline_layouts {
+                engine.device.destroy_pipeline_layout(pipeline_layout, None);
+            }
+            let vertex_shaders = ManuallyDrop::take(&mut self.vertex_shaders);
             for vertex_shader in vertex_shaders {
                 vertex_shader.delete(engine);
             }
             for mesh in scene.meshes.iter() {
                 mesh.delete(engine);
             }
-            let fragment_shaders = mem::ManuallyDrop::take(&mut self.fragment_shaders);
+            let fragment_shaders = ManuallyDrop::take(&mut self.fragment_shaders);
             for fragment_shader in fragment_shaders {
                 fragment_shader.delete(engine);
             }
             for material in scene.materials.iter() {
                 material.delete(engine);
             }
-            engine
-                .device
-                .destroy_descriptor_set_layout(self.descriptor_set_layouts[0], None);
-            engine
-                .device
-                .destroy_descriptor_set_layout(self.descriptor_set_layouts[1], None);
+            let descriptor_set_layouts = ManuallyDrop::take(&mut self.descriptor_set_layouts);
+            for descriptor_set_layout in descriptor_set_layouts {
+                engine
+                    .device
+                    .destroy_descriptor_set_layout(descriptor_set_layout, None);
+            }
             engine
                 .device
                 .destroy_descriptor_pool(self.descriptor_pool, None);
-            let framebuffers = mem::ManuallyDrop::take(&mut self.framebuffers);
+            let framebuffers = ManuallyDrop::take(&mut self.framebuffers);
             for framebuffer in framebuffers {
                 engine.device.destroy_framebuffer(framebuffer, None);
             }

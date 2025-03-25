@@ -1,5 +1,6 @@
 use std::rc::Rc;
 
+use ash::vk;
 use cgmath::Rotation3;
 use winit::keyboard;
 
@@ -30,7 +31,8 @@ fn main() {
         KeyActions::FORWARD as usize,
         KeyBind::new(keyboard::PhysicalKey::Code(keyboard::KeyCode::KeyQ)),
     );
-    let mut engine_builder = engine::EngineBuilder::new(69*15, 42*15, "Envuru", update, controller);
+    let mut engine_builder =
+        engine::EngineBuilder::new(69 * 15, 42 * 15, "Envuru", update, controller);
     let projection = cgmath::PerspectiveFov {
         fovy: cgmath::Rad::from(cgmath::Deg(45.0)),
         aspect: 1.0,
@@ -95,11 +97,15 @@ fn main() {
     ]));
     let object_shader_set = Rc::new(ShaderSet::new(
         include_bytes!("../target/object_vert.spv"),
+        vec![vk::DescriptorType::UNIFORM_BUFFER],
         include_bytes!("../target/object_frag.spv"),
+        vec![vk::DescriptorType::COMBINED_IMAGE_SAMPLER],
     ));
     let line_shader_set = Rc::new(ShaderSet::new(
         include_bytes!("../target/line_vert.spv"),
+        vec![vk::DescriptorType::UNIFORM_BUFFER],
         include_bytes!("../target/line_frag.spv"),
+        Vec::default(),
     ));
     let demo_model = cgmath::Decomposed {
         scale: 1.0,

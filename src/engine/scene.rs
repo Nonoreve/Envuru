@@ -1,7 +1,10 @@
 use std::cell::{OnceCell, RefCell};
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::io::Cursor;
 use std::rc::Rc;
 
+use ash::vk::DescriptorSetAllocateInfo;
 use ash::{util, vk};
 
 use crate::engine::Engine;
@@ -125,16 +128,24 @@ pub struct Line {
     pub shader_set: Rc<ShaderSet>,
 }
 
+#[derive(Eq, PartialEq)]
 pub struct ShaderSet {
     vertex_spv: RefCell<Vec<u32>>,
     fragment_spv: RefCell<Vec<u32>>,
     topology: OnceCell<vk::PrimitiveTopology>,
     index: OnceCell<usize>,
+    vertex_descriptors: Vec<vk::DescriptorType>,
+    fragment_descriptors: Vec<vk::DescriptorType>,
 }
 
 impl ShaderSet {
-    pub fn new(vertex_shader_bytes: &[u8], fragment_shader_bytes: &[u8]) -> Self {
-        // TODO support on-the-fly shader compil
+    pub fn new(
+        vertex_shader_bytes: &[u8],
+        vertex_descriptor: Vec<vk::DescriptorType>,
+        fragment_shader_bytes: &[u8],
+        fragment_descriptor: Vec<vk::DescriptorType>,
+    ) -> Self {
+        // TODO support on-the-fly shader compil and read shader contents to fill descriptors
         let mut spv_data = Cursor::new(vertex_shader_bytes);
         let vertex_spv = RefCell::new(util::read_spv(&mut spv_data).unwrap());
         let mut spv_data = Cursor::new(fragment_shader_bytes);
@@ -144,11 +155,50 @@ impl ShaderSet {
             fragment_spv,
             topology: OnceCell::new(),
             index: OnceCell::new(),
+            vertex_descriptors: vertex_descriptor,
+            fragment_descriptors: fragment_descriptor,
+        }
+    }
+
+    pub fn get_descriptor_set_layout(&self, engine: &Engine) -> vk::DescriptorSetLayout {
+        let mut desc_layout_bindings = Vec::new();
+        for (i, vertex_descriptor) in self.vertex_descriptors.iter().enumerate() {
+            desc_layout_bindings.push(vk::DescriptorSetLayoutBinding {
+                binding: i as u32,
+                descriptor_type: vertex_descriptor.clone(),
+                descriptor_count: 1,
+                stage_flags: vk::ShaderStageFlags::VERTEX,
+                ..Default::default()
+            })
+        }
+        for (i, fragment_descriptor) in self.fragment_descriptors.iter().enumerate() {
+            desc_layout_bindings.push(vk::DescriptorSetLayoutBinding {
+                binding: (self.vertex_descriptors.len() + i) as u32,
+                descriptor_type: fragment_descriptor.clone(),
+                descriptor_count: 1,
+                stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                ..Default::default()
+            })
+        }
+        let descriptor_info =
+            vk::DescriptorSetLayoutCreateInfo::default().bindings(&desc_layout_bindings);
+        unsafe {
+            engine
+                .device
+                .create_descriptor_set_layout(&descriptor_info, None)
+                .unwrap()
         }
     }
 
     pub fn get_index(&self) -> usize {
         self.index.get().unwrap().clone()
+    }
+}
+
+impl Hash for ShaderSet {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.vertex_descriptors.hash(state);
+        self.fragment_descriptors.hash(state);
     }
 }
 
@@ -169,7 +219,8 @@ impl Scene {
         meshes: Vec<Rc<Mesh>>,
         materials: Vec<Rc<Material>>,
         shader_sets: Vec<Rc<ShaderSet>>,
-    ) -> Self {// TODO check all meshes and materials used in lines and objects are given in the dedicated array
+    ) -> Self {
+        // TODO check all meshes and materials used in lines and objects are given in the dedicated array
         // or even better, create the dedicated arrays by collecting them from objs and lines
         for object in objects.iter_mut() {
             if object.shader_set.topology.get().is_none() {
@@ -212,8 +263,7 @@ impl Scene {
     pub fn load_resources(
         &mut self,
         engine: &Engine,
-        object_desc_alloc_info: &vk::DescriptorSetAllocateInfo,
-        line_desc_alloc_info: &vk::DescriptorSetAllocateInfo,
+        desc_alloc_infos: &HashMap<Rc<ShaderSet>, DescriptorSetAllocateInfo>,
     ) -> Vec<(
         VertexShader,
         Vec<vk::VertexInputAttributeDescription>,
@@ -221,6 +271,7 @@ impl Scene {
         FragmentShader,
         Vec<vk::DescriptorSet>,
         vk::PipelineInputAssemblyStateCreateInfo,
+        vk::PipelineRasterizationStateCreateInfo,
     )> {
         for mesh in self.meshes.iter() {
             mesh.load_mesh(engine)
@@ -230,20 +281,12 @@ impl Scene {
         }
         let mut result = Vec::new();
         for shader_set in self.shader_sets.iter() {
-            let topology = *shader_set.topology.get().unwrap();
+            let topology = shader_set.topology.get().unwrap();
             unsafe {
-                let descriptor_sets = if topology == vk::PrimitiveTopology::TRIANGLE_LIST {
-                    engine
-                        .device
-                        .allocate_descriptor_sets(object_desc_alloc_info)
-                        .unwrap()
-                } else {
-                    assert_eq!(topology, vk::PrimitiveTopology::LINE_LIST);
-                    engine
-                        .device
-                        .allocate_descriptor_sets(line_desc_alloc_info)
-                        .unwrap()
-                };
+                let descriptor_sets = engine
+                    .device
+                    .allocate_descriptor_sets(desc_alloc_infos.get(shader_set).unwrap())
+                    .unwrap();
                 let (vertex_shader, input_attribute_descriptions, input_binding_descriptions) =
                     VertexShader::new(
                         &engine,
@@ -261,8 +304,30 @@ impl Scene {
                 shader_set.vertex_spv.borrow_mut().clear();
                 shader_set.fragment_spv.borrow_mut().clear();
                 let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo {
-                    topology,
+                    topology: topology.clone(),
                     ..Default::default()
+                };
+                let rasterization_info = match topology {
+                    &vk::PrimitiveTopology::LINE_LIST => vk::PipelineRasterizationStateCreateInfo {
+                        front_face: vk::FrontFace::COUNTER_CLOCKWISE,
+                        line_width: 10.0,
+                        polygon_mode: vk::PolygonMode::LINE,
+                        ..Default::default()
+                    },
+                    &vk::PrimitiveTopology::POINT_LIST => {
+                        vk::PipelineRasterizationStateCreateInfo {
+                            front_face: vk::FrontFace::COUNTER_CLOCKWISE,
+                            line_width: 10.0, // TODO set VkPipelineDynamicStateCreateInfo and use vkCmdSetLineWidth with line width data from Line structs
+                            polygon_mode: vk::PolygonMode::POINT,
+                            ..Default::default()
+                        }
+                    }
+                    _ => vk::PipelineRasterizationStateCreateInfo {
+                        front_face: vk::FrontFace::COUNTER_CLOCKWISE,
+                        line_width: 1.0,
+                        polygon_mode: vk::PolygonMode::FILL,
+                        ..Default::default()
+                    },
                 };
                 result.push((
                     vertex_shader,
@@ -271,10 +336,74 @@ impl Scene {
                     fragment_shader,
                     descriptor_sets,
                     vertex_input_assembly_state_info,
+                    rasterization_info,
                 ))
             }
         }
         result
+    }
+
+    pub fn get_descriptor_set_layouts(
+        &self,
+        engine: &Engine,
+    ) -> HashMap<Rc<ShaderSet>, vk::DescriptorSetLayout> {
+        let mut descriptor_set_layouts = HashMap::new();
+        for shader_set in self.shader_sets.iter() {
+            let result = descriptor_set_layouts.insert(
+                shader_set.clone(),
+                shader_set.get_descriptor_set_layout(engine),
+            );
+            match result {
+                Some(_) => panic!("Duplicate entry inserted into hash"),
+                None => (),
+            }
+        }
+        descriptor_set_layouts
+    }
+
+    pub fn get_shader_set_users(&self, shader_set: &Rc<ShaderSet>) -> u32 {
+        let mut result = 0;
+        for object in self.objects.iter() {
+            if &object.shader_set.index.get().unwrap() == &shader_set.index.get().unwrap() {
+                result += 1
+            }
+        }
+        for line in self.lines.iter() {
+            if &line.shader_set.index.get().unwrap() == &shader_set.index.get().unwrap() {
+                result += 1
+            }
+        }
+        result
+    }
+
+    pub fn get_pool_sizes(&self) -> Vec<vk::DescriptorPoolSize> {
+        let mut types_map: HashMap<vk::DescriptorType, vk::DescriptorPoolSize> = HashMap::new();
+        for shader_set in self
+            .objects
+            .iter()
+            .map(|x| x.shader_set.clone())
+            .chain(self.lines.iter().map(|x1| x1.shader_set.clone()))
+        {
+            for descriptor in shader_set
+                .clone()
+                .vertex_descriptors
+                .iter()
+                .chain(shader_set.clone().fragment_descriptors.iter())
+            {
+                if types_map.contains_key(descriptor) {
+                    types_map.get_mut(descriptor).unwrap().descriptor_count += 1;
+                } else {
+                    types_map.insert(
+                        descriptor.clone(),
+                        vk::DescriptorPoolSize {
+                            ty: descriptor.clone(),
+                            descriptor_count: 1,
+                        },
+                    );
+                }
+            }
+        }
+        types_map.into_values().collect()
     }
 }
 

@@ -322,6 +322,8 @@ impl Engine {
             let features = vk::PhysicalDeviceFeatures {
                 shader_clip_distance: 1,
                 sampler_anisotropy: vk::TRUE,
+                fill_mode_non_solid: vk::TRUE,
+                wide_lines: vk::TRUE,
                 ..Default::default()
             };
             let priorities = [1.0];

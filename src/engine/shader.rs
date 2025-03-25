@@ -108,7 +108,7 @@ impl FragmentShader {
         spv_data: &Vec<u32>,
         objects: &Vec<Object>,
         descriptor_sets: &Vec<vk::DescriptorSet>,
-        topology: vk::PrimitiveTopology,
+        topology: &vk::PrimitiveTopology,
     ) -> Self {
         let sampler_info = vk::SamplerCreateInfo {
             flags: Default::default(),
@@ -132,7 +132,7 @@ impl FragmentShader {
 
         unsafe {
             let sampler = engine.device.create_sampler(&sampler_info, None).unwrap();
-            if topology == vk::PrimitiveTopology::TRIANGLE_LIST {
+            if topology == &vk::PrimitiveTopology::TRIANGLE_LIST {
                 for (i, descriptor_set) in descriptor_sets.iter().enumerate() {
                     let tex_descriptor = objects
                         .get(i % objects.len())
