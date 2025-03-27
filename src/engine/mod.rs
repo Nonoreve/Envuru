@@ -1,8 +1,8 @@
-use std::{borrow, ffi, mem, process, sync};
-
 use ash::ext::debug_utils;
 use ash::khr::surface;
 use ash::{khr, vk};
+use std::ops::Index;
+use std::{borrow, ffi, mem, process, sync};
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::{application, dpi, event, event_loop, window};
 
@@ -22,6 +22,11 @@ pub(crate) mod shader;
 mod swapchain;
 
 type UpdateFn = for<'a, 'b, 'c> fn(&'b mut Scene, &'b mut Pipelines, &'c Controller);
+
+pub enum ShaderInterface {
+    UniformBuffer,
+    CombinedImageSampler,
+}
 
 pub struct EngineBuilder {
     event_loop: event_loop::EventLoop<()>,
@@ -472,7 +477,13 @@ impl Engine {
                         vk::SubpassContents::INLINE,
                     );
                     for (obj_index, object) in scene.objects.iter().enumerate() {
-                        let shader_set_index = object.shader_set.get_index();
+                        let mut shader_set_index = usize::MAX;
+                        for (i, shader_set) in pipeline.shader_set_order.iter().enumerate() {
+                            if &object.shader_set == shader_set {
+                                shader_set_index = i
+                            }
+                        }
+                        assert_ne!(shader_set_index, usize::MAX, "Shader set not found");
                         device.cmd_bind_pipeline(
                             draw_command_buffer,
                             vk::PipelineBindPoint::GRAPHICS,
@@ -490,7 +501,7 @@ impl Engine {
                             projection: cgmath::Matrix4::from(scene.camera.projection),
                         };
                         pipeline.update_uniforms(
-                            shader_set_index,
+                            object.shader_set.clone(),
                             mvp,
                             current_frame * scene.objects.len() + obj_index,
                         );
@@ -499,9 +510,9 @@ impl Engine {
                         device.cmd_bind_descriptor_sets(
                             draw_command_buffer,
                             vk::PipelineBindPoint::GRAPHICS,
-                            pipeline.pipeline_layouts[shader_set_index],
+                            pipeline.pipeline_layouts[&object.shader_set],
                             0,
-                            &[pipeline.descriptors_sets[shader_set_index]
+                            &[pipeline.descriptors_sets[&object.shader_set]
                                 [current_frame * scene.objects.len() + obj_index]],
                             &[],
                         );
@@ -515,7 +526,13 @@ impl Engine {
                         );
                     }
                     for (line_index, line) in scene.lines.iter().enumerate() {
-                        let shader_set_index = line.shader_set.get_index();
+                        let mut shader_set_index = usize::MAX;
+                        for (i, shader_set) in pipeline.shader_set_order.iter().enumerate() {
+                            if &line.shader_set == shader_set {
+                                shader_set_index = i
+                            }
+                        }
+                        assert_ne!(shader_set_index, usize::MAX, "Shader set not found");
                         device.cmd_bind_pipeline(
                             draw_command_buffer,
                             vk::PipelineBindPoint::GRAPHICS,
@@ -533,7 +550,7 @@ impl Engine {
                             projection: cgmath::Matrix4::from(scene.camera.projection),
                         };
                         pipeline.update_uniforms(
-                            shader_set_index,
+                            line.shader_set.clone(),
                             mvp,
                             current_frame * scene.lines.len() + line_index,
                         );
@@ -542,9 +559,9 @@ impl Engine {
                         device.cmd_bind_descriptor_sets(
                             draw_command_buffer,
                             vk::PipelineBindPoint::GRAPHICS,
-                            pipeline.pipeline_layouts[shader_set_index],
+                            pipeline.pipeline_layouts[&line.shader_set],
                             0,
-                            &[pipeline.descriptors_sets[shader_set_index]
+                            &[pipeline.descriptors_sets[&line.shader_set]
                                 [current_frame * scene.lines.len() + line_index]],
                             &[],
                         );

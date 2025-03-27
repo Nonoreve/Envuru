@@ -1,10 +1,10 @@
+use ash::{util, vk};
 use std::collections::HashMap;
 use std::ffi;
 use std::mem::ManuallyDrop;
+use std::rc::Rc;
 
-use ash::{util, vk};
-
-use crate::engine::scene::{MvpUbo, Scene};
+use crate::engine::scene::{MvpUbo, Scene, ShaderSet};
 use crate::engine::shader::{FragmentShader, VertexShader};
 use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT};
 
@@ -12,14 +12,15 @@ pub struct Pipelines {
     pub renderpass: vk::RenderPass,
     pub framebuffers: ManuallyDrop<Vec<vk::Framebuffer>>,
     pub graphics_pipelines: ManuallyDrop<Vec<vk::Pipeline>>,
-    pub pipeline_layouts: ManuallyDrop<Vec<vk::PipelineLayout>>,
+    pub pipeline_layouts: ManuallyDrop<HashMap<Rc<ShaderSet>, vk::PipelineLayout>>,
     pub frames: u64,
     descriptor_set_layouts: ManuallyDrop<Vec<vk::DescriptorSetLayout>>,
     descriptor_pool: vk::DescriptorPool,
-    pub descriptors_sets: Vec<Vec<vk::DescriptorSet>>,
+    pub descriptors_sets: HashMap<Rc<ShaderSet>, Vec<vk::DescriptorSet>>,
     pub aspect_ratio: f32,
-    vertex_shaders: ManuallyDrop<Vec<VertexShader>>,
-    fragment_shaders: ManuallyDrop<Vec<FragmentShader>>,
+    vertex_shaders: ManuallyDrop<HashMap<Rc<ShaderSet>, VertexShader>>,
+    fragment_shaders: ManuallyDrop<HashMap<Rc<ShaderSet>, FragmentShader>>,
+    pub shader_set_order: Vec<Rc<ShaderSet>>,
 }
 
 impl Pipelines {
@@ -117,15 +118,15 @@ impl Pipelines {
                     .set_layouts(&duplicated_set_layout);
                 desc_alloc_infos.insert(shader_set.clone(), desc_alloc_info);
             }
-            let mut pipeline_layouts = Vec::new();
-            for (_shader_set, duplicated_set_layout) in duplicated_set_layouts.iter() {
+            let mut pipeline_layouts = HashMap::new();
+            for (shader_set, duplicated_set_layout) in duplicated_set_layouts.iter() {
                 let layout_create_info =
                     vk::PipelineLayoutCreateInfo::default().set_layouts(&duplicated_set_layout);
                 let pipeline_layout = engine
                     .device
                     .create_pipeline_layout(&layout_create_info, None)
                     .unwrap();
-                pipeline_layouts.push(pipeline_layout);
+                pipeline_layouts.insert(shader_set.clone(), pipeline_layout);
             }
             let viewport_state_info = vk::PipelineViewportStateCreateInfo {
                 viewport_count: 1,
@@ -169,15 +170,15 @@ impl Pipelines {
             let dynamic_state_info =
                 vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_state);
             let shader_entry_name = ffi::CStr::from_bytes_with_nul_unchecked(b"main\0");
-            let mut vertex_shaders = Vec::new();
-            let mut fragment_shaders = Vec::new();
-            let mut input_attributes_descriptions = Vec::new();
-            let mut input_bindings_descriptions = Vec::new();
-            let mut descriptors_sets = Vec::new();
-            let mut shader_stages_create_infos = Vec::new();
-            let mut vertex_input_assembly_state_infos = Vec::new();
-            let mut rasterization_infos = Vec::new();
-            for tuple in scene.load_resources(engine, &desc_alloc_infos) {
+            let mut vertex_shaders = HashMap::new();
+            let mut fragment_shaders = HashMap::new();
+            let mut input_attributes_descriptions = HashMap::new();
+            let mut input_bindings_descriptions = HashMap::new();
+            let mut descriptors_sets = HashMap::new();
+            let mut shader_stages_create_infos = HashMap::new();
+            let mut vertex_input_assembly_state_infos = HashMap::new();
+            let mut rasterization_infos = HashMap::new();
+            for (shader_set, tuple) in scene.load_resources(engine, &desc_alloc_infos) {
                 let (
                     vertex_shader,
                     input_attribute_descriptions,
@@ -203,37 +204,45 @@ impl Pipelines {
                         ..Default::default()
                     },
                 ];
-                input_attributes_descriptions.push(input_attribute_descriptions);
-                input_bindings_descriptions.push(input_binding_descriptions);
-                descriptors_sets.push(descriptor_sets);
-                vertex_shaders.push(vertex_shader);
-                fragment_shaders.push(fragment_shader);
-                shader_stages_create_infos.push(shader_stage_create_infos);
-                vertex_input_assembly_state_infos.push(vertex_input_assembly_state_info);
-                rasterization_infos.push(rasterization_info)
+                input_attributes_descriptions
+                    .insert(shader_set.clone(), input_attribute_descriptions);
+                input_bindings_descriptions.insert(shader_set.clone(), input_binding_descriptions);
+                descriptors_sets.insert(shader_set.clone(), descriptor_sets);
+                vertex_shaders.insert(shader_set.clone(), vertex_shader);
+                fragment_shaders.insert(shader_set.clone(), fragment_shader);
+                shader_stages_create_infos.insert(shader_set.clone(), shader_stage_create_infos);
+                vertex_input_assembly_state_infos
+                    .insert(shader_set.clone(), vertex_input_assembly_state_info);
+                rasterization_infos.insert(shader_set.clone(), rasterization_info);
             }
-            let mut vertex_input_state_infos = Vec::new();
-            for i in 0..vertex_shaders.len() {
+            let mut vertex_input_state_infos = HashMap::new();
+            for (shader_set, input_attributes_description) in input_attributes_descriptions.iter() {
                 let vertex_input_state_info = vk::PipelineVertexInputStateCreateInfo::default()
-                    .vertex_attribute_descriptions(input_attributes_descriptions[i].as_slice())
-                    .vertex_binding_descriptions(input_bindings_descriptions[i].as_slice());
-                vertex_input_state_infos.push(vertex_input_state_info)
+                    .vertex_attribute_descriptions(input_attributes_description.as_slice())
+                    .vertex_binding_descriptions(
+                        input_bindings_descriptions.get(shader_set).unwrap(),
+                    );
+                vertex_input_state_infos.insert(shader_set.clone(), vertex_input_state_info);
             }
             let mut graphic_pipeline_infos = Vec::new();
-            for i in 0..vertex_shaders.len() {
+            let mut shader_set_order = Vec::new();
+            for (shader_set, shader_stages_create_info) in shader_stages_create_infos.iter() {
                 let graphic_pipeline_info = vk::GraphicsPipelineCreateInfo::default()
-                    .stages(&shader_stages_create_infos[i])
-                    .vertex_input_state(&vertex_input_state_infos[i])
-                    .input_assembly_state(&vertex_input_assembly_state_infos[i])
+                    .stages(shader_stages_create_info)
+                    .vertex_input_state(&vertex_input_state_infos.get(shader_set).unwrap())
+                    .input_assembly_state(
+                        &vertex_input_assembly_state_infos.get(shader_set).unwrap(),
+                    )
                     .viewport_state(&viewport_state_info)
-                    .rasterization_state(&rasterization_infos[i])
+                    .rasterization_state(&rasterization_infos.get(shader_set).unwrap())
                     .multisample_state(&multisample_state_info)
                     .depth_stencil_state(&depth_state_info)
                     .color_blend_state(&color_blend_state)
                     .dynamic_state(&dynamic_state_info)
-                    .layout(pipeline_layouts[i])
+                    .layout(*pipeline_layouts.get(shader_set).unwrap())
                     .render_pass(renderpass);
-                graphic_pipeline_infos.push(graphic_pipeline_info)
+                graphic_pipeline_infos.push(graphic_pipeline_info);
+                shader_set_order.push(shader_set.clone());
             }
             let graphics_pipelines = engine
                 .device
@@ -259,6 +268,7 @@ impl Pipelines {
                 aspect_ratio,
                 vertex_shaders: ManuallyDrop::new(vertex_shaders),
                 fragment_shaders: ManuallyDrop::new(fragment_shaders),
+                shader_set_order,
             }
         }
     }
@@ -288,14 +298,19 @@ impl Pipelines {
         }
     }
 
-    pub fn update_uniforms(&self, pipeline_index: usize, mvp: MvpUbo, current_frame: usize) {
+    pub fn update_uniforms(
+        &self,
+        pipeline_index: Rc<ShaderSet>,
+        mvp: MvpUbo,
+        current_frame: usize,
+    ) {
         unsafe {
             let mut alignment = util::Align::new(
-                self.vertex_shaders[pipeline_index].uniform_mvp_buffers[current_frame]
+                self.vertex_shaders[&pipeline_index].uniform_mvp_buffers[current_frame]
                     .data_ptr
                     .unwrap(),
                 align_of::<f32>() as u64,
-                self.vertex_shaders[pipeline_index].uniform_mvp_buffers[current_frame]
+                self.vertex_shaders[&pipeline_index].uniform_mvp_buffers[current_frame]
                     .memory_requirements
                     .size,
             );
@@ -321,18 +336,20 @@ impl Pipelines {
             }
             let pipeline_layouts = ManuallyDrop::take(&mut self.pipeline_layouts);
             for pipeline_layout in pipeline_layouts {
-                engine.device.destroy_pipeline_layout(pipeline_layout, None);
+                engine
+                    .device
+                    .destroy_pipeline_layout(pipeline_layout.1, None);
             }
             let vertex_shaders = ManuallyDrop::take(&mut self.vertex_shaders);
             for vertex_shader in vertex_shaders {
-                vertex_shader.delete(engine);
+                vertex_shader.1.delete(engine);
             }
             for mesh in scene.meshes.iter() {
                 mesh.delete(engine);
             }
             let fragment_shaders = ManuallyDrop::take(&mut self.fragment_shaders);
             for fragment_shader in fragment_shaders {
-                fragment_shader.delete(engine);
+                fragment_shader.1.delete(engine);
             }
             for material in scene.materials.iter() {
                 material.delete(engine);

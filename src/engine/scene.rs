@@ -7,9 +7,9 @@ use std::rc::Rc;
 use ash::vk::DescriptorSetAllocateInfo;
 use ash::{util, vk};
 
-use crate::engine::Engine;
 use crate::engine::memory::{DataOrganization, IndexBuffer, Texture, VertexBuffer};
 use crate::engine::shader::{FragmentShader, VertexShader};
+use crate::engine::{Engine, ShaderInterface};
 
 pub struct Camera {
     pub position: cgmath::Point3<f32>,
@@ -141,22 +141,36 @@ pub struct ShaderSet {
 impl ShaderSet {
     pub fn new(
         vertex_shader_bytes: &[u8],
-        vertex_descriptor: Vec<vk::DescriptorType>,
+        vertex_shader_interface: Vec<ShaderInterface>,
         fragment_shader_bytes: &[u8],
-        fragment_descriptor: Vec<vk::DescriptorType>,
+        fragment_shader_interface: Vec<ShaderInterface>,
     ) -> Self {
         // TODO support on-the-fly shader compil and read shader contents to fill descriptors
         let mut spv_data = Cursor::new(vertex_shader_bytes);
         let vertex_spv = RefCell::new(util::read_spv(&mut spv_data).unwrap());
         let mut spv_data = Cursor::new(fragment_shader_bytes);
         let fragment_spv = RefCell::new(util::read_spv(&mut spv_data).unwrap());
+        let vertex_descriptors = vertex_shader_interface
+            .iter()
+            .map(|shader_interface| match shader_interface {
+                ShaderInterface::UniformBuffer => vk::DescriptorType::UNIFORM_BUFFER,
+                ShaderInterface::CombinedImageSampler => vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            })
+            .collect();
+        let fragment_descriptors = fragment_shader_interface
+            .iter()
+            .map(|shader_interface| match shader_interface {
+                ShaderInterface::UniformBuffer => vk::DescriptorType::UNIFORM_BUFFER,
+                ShaderInterface::CombinedImageSampler => vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            })
+            .collect();
         Self {
             vertex_spv,
             fragment_spv,
             topology: OnceCell::new(),
             index: OnceCell::new(),
-            vertex_descriptors: vertex_descriptor,
-            fragment_descriptors: fragment_descriptor,
+            vertex_descriptors,
+            fragment_descriptors,
         }
     }
 
@@ -264,22 +278,25 @@ impl Scene {
         &mut self,
         engine: &Engine,
         desc_alloc_infos: &HashMap<Rc<ShaderSet>, DescriptorSetAllocateInfo>,
-    ) -> Vec<(
-        VertexShader,
-        Vec<vk::VertexInputAttributeDescription>,
-        Vec<vk::VertexInputBindingDescription>,
-        FragmentShader,
-        Vec<vk::DescriptorSet>,
-        vk::PipelineInputAssemblyStateCreateInfo,
-        vk::PipelineRasterizationStateCreateInfo,
-    )> {
+    ) -> HashMap<
+        Rc<ShaderSet>,
+        (
+            VertexShader,
+            Vec<vk::VertexInputAttributeDescription>,
+            Vec<vk::VertexInputBindingDescription>,
+            FragmentShader,
+            Vec<vk::DescriptorSet>,
+            vk::PipelineInputAssemblyStateCreateInfo,
+            vk::PipelineRasterizationStateCreateInfo,
+        ),
+    > {
         for mesh in self.meshes.iter() {
             mesh.load_mesh(engine)
         }
         for material in self.materials.iter() {
             material.load_textures(engine);
         }
-        let mut result = Vec::new();
+        let mut result = HashMap::new();
         for shader_set in self.shader_sets.iter() {
             let topology = shader_set.topology.get().unwrap();
             unsafe {
@@ -329,15 +346,18 @@ impl Scene {
                         ..Default::default()
                     },
                 };
-                result.push((
-                    vertex_shader,
-                    input_attribute_descriptions,
-                    input_binding_descriptions,
-                    fragment_shader,
-                    descriptor_sets,
-                    vertex_input_assembly_state_info,
-                    rasterization_info,
-                ))
+                result.insert(
+                    shader_set.clone(),
+                    (
+                        vertex_shader,
+                        input_attribute_descriptions,
+                        input_binding_descriptions,
+                        fragment_shader,
+                        descriptor_sets,
+                        vertex_input_assembly_state_info,
+                        rasterization_info,
+                    ),
+                );
             }
         }
         result

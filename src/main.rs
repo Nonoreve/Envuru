@@ -1,11 +1,11 @@
 use std::rc::Rc;
 
-use ash::vk;
 use cgmath::Rotation3;
 use winit::keyboard;
 
 use engine::scene::Vertex;
 
+use crate::engine::ShaderInterface;
 use crate::engine::controller::{Controller, KeyBind};
 use crate::engine::pipeline::Pipelines;
 use crate::engine::scene::{Camera, Line, Material, Mesh, Object, Scene, ShaderSet};
@@ -97,13 +97,13 @@ fn main() {
     ]));
     let object_shader_set = Rc::new(ShaderSet::new(
         include_bytes!("../target/object_vert.spv"),
-        vec![vk::DescriptorType::UNIFORM_BUFFER],
+        vec![ShaderInterface::UniformBuffer],
         include_bytes!("../target/object_frag.spv"),
-        vec![vk::DescriptorType::COMBINED_IMAGE_SAMPLER],
+        vec![ShaderInterface::CombinedImageSampler],
     ));
     let line_shader_set = Rc::new(ShaderSet::new(
         include_bytes!("../target/line_vert.spv"),
-        vec![vk::DescriptorType::UNIFORM_BUFFER],
+        vec![ShaderInterface::UniformBuffer],
         include_bytes!("../target/line_frag.spv"),
         Vec::default(),
     ));
