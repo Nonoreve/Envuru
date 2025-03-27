@@ -317,7 +317,7 @@ impl Scene {
                     &shader_set.fragment_spv.borrow(),
                     &self.objects,
                     &descriptor_sets,
-                    topology,
+                    &shader_set.fragment_descriptors,
                 );
                 shader_set.vertex_spv.borrow_mut().clear();
                 shader_set.fragment_spv.borrow_mut().clear();
