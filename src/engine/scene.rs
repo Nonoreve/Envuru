@@ -125,6 +125,7 @@ impl Object {
 pub struct Line {
     pub mesh: Rc<Mesh>,
     pub model: cgmath::Decomposed<cgmath::Vector3<f32>, cgmath::Quaternion<f32>>,
+    pub width: f32,
     pub shader_set: Rc<ShaderSet>,
 }
 
@@ -334,7 +335,7 @@ impl Scene {
                     &vk::PrimitiveTopology::POINT_LIST => {
                         vk::PipelineRasterizationStateCreateInfo {
                             front_face: vk::FrontFace::COUNTER_CLOCKWISE,
-                            line_width: 10.0, // TODO set VkPipelineDynamicStateCreateInfo and use vkCmdSetLineWidth with line width data from Line structs
+                            line_width: 2.0,
                             polygon_mode: vk::PolygonMode::POINT,
                             ..Default::default()
                         }

@@ -565,6 +565,7 @@ impl Engine {
                                 [current_frame * scene.lines.len() + line_index]],
                             &[],
                         );
+                        device.cmd_set_line_width(draw_command_buffer, line.width);
                         device.cmd_draw_indexed(
                             draw_command_buffer,
                             line.mesh.get_index_count(),

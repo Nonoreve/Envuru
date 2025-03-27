@@ -160,6 +160,7 @@ fn main() {
     let line = Line {
         mesh: Rc::clone(&line_mesh),
         model: line_model,
+        width: 4.0,
         shader_set: Rc::clone(&line_shader_set),
     };
     let start_scene = Scene::new(
