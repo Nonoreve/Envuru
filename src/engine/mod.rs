@@ -1,17 +1,15 @@
+use std::{borrow, ffi, mem, process, sync};
+
 use ash::ext::debug_utils;
 use ash::khr::surface;
 use ash::{khr, vk};
-use std::ops::Index;
-use std::{borrow, ffi, mem, process, sync};
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::{application, dpi, event, event_loop, window};
-
-use scene::MvpUbo;
 
 use crate::engine::controller::Controller;
 use crate::engine::memory::DepthImage;
 use crate::engine::pipeline::Pipelines;
-use crate::engine::scene::Scene;
+use crate::engine::scene::{MvpUbo, Scene};
 use crate::engine::swapchain::Swapchain;
 
 pub mod controller;
@@ -21,7 +19,12 @@ pub mod scene;
 pub(crate) mod shader;
 mod swapchain;
 
-type UpdateFn = for<'a, 'b, 'c> fn(&'b mut Scene, &'b mut Pipelines, &'c Controller);
+type UpdateFn = for<'a, 'b, 'c, 'd> fn(
+    &'b mut Scene,
+    &'b mut Pipelines,
+    &'c mut Controller,
+    &'d cgmath::Vector2<f64>,
+);
 
 pub enum ShaderInterface {
     UniformBuffer,
@@ -66,15 +69,24 @@ impl<'a> application::ApplicationHandler for WindowHandler {
         _id: window::WindowId,
         event: event::WindowEvent,
     ) {
+        // TODO handle Options possibliy none in this context
         match event {
             event::WindowEvent::CloseRequested => {
                 event_loop.exit();
             }
             event::WindowEvent::RedrawRequested => {
+                let window_position = self
+                    .engine
+                    .as_ref()
+                    .unwrap()
+                    .window
+                    .inner_position()
+                    .unwrap();
                 (self.update_function)(
                     self.scenes.get_mut(self.starting_scene).unwrap(),
                     self.pipeline.as_mut().unwrap(),
-                    self.controller.as_ref().unwrap(),
+                    self.controller.as_mut().unwrap(),
+                    &cgmath::vec2(window_position.x as f64, window_position.y as f64),
                 );
                 self.engine.as_ref().unwrap().draw_frame(
                     self.pipeline.as_mut().unwrap(),
@@ -95,18 +107,37 @@ impl<'a> application::ApplicationHandler for WindowHandler {
             }
             event::WindowEvent::ScaleFactorChanged { .. } => {}
             x => {
+                let window_position = self
+                    .engine
+                    .as_ref()
+                    .unwrap()
+                    .window
+                    .inner_position()
+                    .unwrap();
                 if self.controller.is_some() {
-                    self.controller.as_mut().unwrap().handle_event(x);
+                    self.controller.as_mut().unwrap().handle_event(
+                        x,
+                        self.pipeline.as_ref().unwrap().frames,
+                        &cgmath::vec2(window_position.x as f64, window_position.y as f64),
+                    );
                 }
             }
         }
     }
 
     fn about_to_wait(&mut self, _event_loop: &event_loop::ActiveEventLoop) {
+        let window_position = self
+            .engine
+            .as_ref()
+            .unwrap()
+            .window
+            .inner_position()
+            .unwrap();
         (self.update_function)(
             self.scenes.get_mut(self.starting_scene).unwrap(),
             self.pipeline.as_mut().unwrap(),
-            self.controller.as_ref().unwrap(),
+            self.controller.as_mut().unwrap(),
+            &cgmath::vec2(window_position.x as f64, window_position.y as f64),
         );
         self.engine.as_ref().unwrap().draw_frame(
             self.pipeline.as_mut().unwrap(),
@@ -433,7 +464,7 @@ impl Engine {
         let clear_values = [
             vk::ClearValue {
                 color: vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.0, 0.0],
+                    float32: [1.0, 1.0, 1.0, 0.0],
                 },
             },
             vk::ClearValue {
@@ -491,13 +522,10 @@ impl Engine {
                         );
                         device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
                         device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
+                        // let direction = scene.camera.rotation.;
                         let mvp = MvpUbo {
                             model: cgmath::Matrix4::from(object.model),
-                            view: cgmath::Matrix4::look_at_rh(
-                                scene.camera.position,
-                                scene.camera.direction,
-                                cgmath::vec3(0.0, 0.0, 1.0),
-                            ),
+                            view: scene.camera.view_matrix(),
                             projection: cgmath::Matrix4::from(scene.camera.projection),
                         };
                         pipeline.update_uniforms(
@@ -542,11 +570,7 @@ impl Engine {
                         device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
                         let mvp = MvpUbo {
                             model: cgmath::Matrix4::from(line.model),
-                            view: cgmath::Matrix4::look_at_rh(
-                                scene.camera.position,
-                                scene.camera.direction,
-                                cgmath::vec3(0.0, 0.0, 1.0),
-                            ),
+                            view: scene.camera.view_matrix(),
                             projection: cgmath::Matrix4::from(scene.camera.projection),
                         };
                         pipeline.update_uniforms(
@@ -614,7 +638,11 @@ impl Engine {
             pipeline.new_framebuffers(self);
             pipeline.aspect_ratio = self.swapchain.surface_resolution.width as f32
                 / self.swapchain.surface_resolution.height as f32;
-            // TODO recreate renderpass if image format was changed
+            pipeline.window_dimensions = cgmath::vec2(
+                self.swapchain.surface_resolution.width as f64,
+                self.swapchain.surface_resolution.height as f64,
+            );
+            // TODO recreate renderpass if image format was changed (like by changing monitor)
         }
     }
 

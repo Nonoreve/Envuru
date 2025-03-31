@@ -6,15 +6,63 @@ use std::rc::Rc;
 
 use ash::vk::DescriptorSetAllocateInfo;
 use ash::{util, vk};
+use cgmath::{Angle, Rotation3};
 
 use crate::engine::memory::{DataOrganization, IndexBuffer, Texture, VertexBuffer};
 use crate::engine::shader::{FragmentShader, VertexShader};
 use crate::engine::{Engine, ShaderInterface};
 
 pub struct Camera {
-    pub position: cgmath::Point3<f32>,
-    pub direction: cgmath::Point3<f32>,
+    position: cgmath::Point3<f32>,
+    rotation: cgmath::Vector3<f32>,
     pub projection: cgmath::PerspectiveFov<f32>,
+}
+
+impl Camera {
+    pub fn new(
+        position: cgmath::Point3<f32>,
+        rotation: cgmath::Vector3<f32>,
+        projection: cgmath::PerspectiveFov<f32>,
+    ) -> Self {
+        Self {
+            position,
+            rotation,
+            projection,
+        }
+    }
+
+    pub fn move_offset(&mut self, offset: &cgmath::Vector3<f32>) {
+        if offset.z > 0.0 {
+            let rad = cgmath::Rad(self.rotation.y);
+            self.position.x += rad.sin() * -1.0 * offset.z;
+            self.position.z += rad.cos() * offset.z;
+        }
+        if offset.x > 0.0 {
+            let rad = cgmath::Rad(self.rotation.y - 90.0);
+            self.position.x += rad.sin() * -1.0 * offset.x;
+            self.position.z += rad.cos() * offset.x;
+        }
+        self.position.y += offset.y;
+    }
+
+    pub fn view_matrix(&self) -> cgmath::Matrix4<f32> {
+        let rad = cgmath::Rad(self.rotation.x);
+        let mut result = cgmath::Basis3::from_angle_x(rad);
+        let rad = cgmath::Rad(self.rotation.y);
+        result = result * cgmath::Basis3::from_angle_y(rad);
+        let a: cgmath::Matrix3<f32> = result.into();
+        let mut b: cgmath::Matrix4<f32> = a.into();
+        b = b * cgmath::Matrix4::from_translation(cgmath::vec3(
+            self.position.x,
+            self.position.y,
+            self.position.z,
+        ));
+        b
+    }
+
+    pub fn rotate(&mut self, offset: cgmath::Vector3<f32>) {
+        self.rotation += offset
+    }
 }
 
 pub struct Mesh {

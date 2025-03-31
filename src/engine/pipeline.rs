@@ -21,6 +21,7 @@ pub struct Pipelines {
     vertex_shaders: ManuallyDrop<HashMap<Rc<ShaderSet>, VertexShader>>,
     fragment_shaders: ManuallyDrop<HashMap<Rc<ShaderSet>, FragmentShader>>,
     pub shader_set_order: Vec<Rc<ShaderSet>>,
+    pub window_dimensions: cgmath::Vector2<f64>,
 }
 
 impl Pipelines {
@@ -273,6 +274,10 @@ impl Pipelines {
                 vertex_shaders: ManuallyDrop::new(vertex_shaders),
                 fragment_shaders: ManuallyDrop::new(fragment_shaders),
                 shader_set_order,
+                window_dimensions: cgmath::vec2(
+                    engine.swapchain.surface_resolution.width as f64,
+                    engine.swapchain.surface_resolution.height as f64,
+                ),
             }
         }
     }

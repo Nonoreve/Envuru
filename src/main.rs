@@ -1,49 +1,75 @@
 use std::rc::Rc;
 
 use cgmath::Rotation3;
-use winit::keyboard;
+use winit::{event, keyboard};
 
 use engine::scene::Vertex;
 
 use crate::engine::ShaderInterface;
-use crate::engine::controller::{Controller, KeyBind};
+use crate::engine::controller::{Controller, KeyBind, MouseOrKey};
 use crate::engine::pipeline::Pipelines;
 use crate::engine::scene::{Camera, Line, Material, Mesh, Object, Scene, ShaderSet};
 
 mod engine;
 
 enum KeyActions {
-    FORWARD,
+    Forward,
+    OrientCamera,
 }
 
-fn update(scene: &mut Scene, runtime_data: &mut Pipelines, controller: &Controller) {
+fn update(
+    scene: &mut Scene,
+    runtime_data: &mut Pipelines,
+    controller: &mut Controller,
+    window_position: &cgmath::Vector2<f64>,
+) {
     scene.objects[0].model.rot =
         cgmath::Quaternion::from_angle_z(cgmath::Deg(runtime_data.frames as f32 * 0.1));
-    if controller.is_hold(KeyActions::FORWARD as usize) {
-        scene.camera.direction.x += 0.01;
-        scene.camera.position.x += 0.01
+    if controller.is_hold(KeyActions::Forward as usize) {
+        let offset = cgmath::vec3(1.0, 1.0, 1.0);
+        scene.camera.move_offset(&offset)
+    }
+    if controller.is_hold(KeyActions::OrientCamera as usize) {
+        let direction = controller.mouse_direction(runtime_data.frames);
+        scene.camera.rotate(cgmath::vec3(
+            direction.y as f32 * 0.0002,
+            direction.x as f32 * 0.0002,
+            0.0,
+        ));
+        println!(
+            "mouse_direction={direction:?} \ncamera.direction={:?}",
+            scene.camera.view_matrix()
+        );
     }
 }
 
 fn main() {
-    let mut controller = Some(Controller::new());
+    let width = 69.0 * 15.0;
+    let height = 42.0 * 15.0;
+    let mut controller = Some(Controller::new(width, height));
     controller.as_mut().unwrap().register_bind_action(
-        KeyActions::FORWARD as usize,
-        KeyBind::new(keyboard::PhysicalKey::Code(keyboard::KeyCode::KeyQ)),
+        KeyActions::Forward as usize,
+        KeyBind::new(MouseOrKey::Key(keyboard::PhysicalKey::Code(
+            keyboard::KeyCode::KeyQ,
+        ))),
+    );
+    controller.as_mut().unwrap().register_bind_action(
+        KeyActions::OrientCamera as usize,
+        KeyBind::new(MouseOrKey::Mouse(event::MouseButton::Left)),
     );
     let mut engine_builder =
-        engine::EngineBuilder::new(69 * 15, 42 * 15, "Envuru", update, controller);
+        engine::EngineBuilder::new(width as u32, height as u32, "Envuru", update, controller);
     let projection = cgmath::PerspectiveFov {
         fovy: cgmath::Rad::from(cgmath::Deg(45.0)),
         aspect: 1.0,
         near: 0.1,
         far: 10.0,
     };
-    let camera = Camera {
-        position: cgmath::point3(1.0, 1.0, 1.0),
-        direction: cgmath::point3(0.0, 0.0, 0.0),
+    let camera = Camera::new(
+        cgmath::point3(1.0, 1.0, 1.0),
+        cgmath::vec3(0.0, 0.0, 0.0),
         projection,
-    };
+    );
     let rectangle_vertices = [
         Vertex {
             pos: cgmath::vec4(-1.0, -1.0, 0.0, 1.0),
