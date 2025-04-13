@@ -263,6 +263,7 @@ pub struct Engine {
     setup_commands_reuse_fence: vk::Fence,
     surface_capabilities: vk::SurfaceCapabilitiesKHR,
     pdevice: vk::PhysicalDevice,
+    // pub limits: vk::PhysicalDeviceLimits,
 }
 
 impl Engine {
@@ -432,7 +433,7 @@ impl Engine {
                 })
                 .collect();
             // let limits = instance.get_physical_device_properties(pdevice).limits;
-            // println!("limits={:#?}", limits); TODO get max number of images allowed on gpu
+            // println!("limits={:#?}", limits); // TODO get max number of images allowed on gpu
             Self {
                 instance,
                 device,
@@ -455,6 +456,7 @@ impl Engine {
                 surface_capabilities,
                 debug_call_back,
                 debug_utils_loader,
+                // limits,
             }
         }
     }
@@ -528,11 +530,7 @@ impl Engine {
                             view: scene.camera.view_matrix(),
                             projection: cgmath::Matrix4::from(scene.camera.projection),
                         };
-                        pipeline.update_uniforms(
-                            object.shader_set.clone(),
-                            mvp,
-                            current_frame * scene.objects.len() + obj_index,
-                        );
+                        pipeline.update_uniforms(object.shader_set.clone(), mvp, current_frame);
 
                         object.mesh.bind_buffers(self, current_frame);
                         device.cmd_bind_descriptor_sets(
@@ -540,8 +538,7 @@ impl Engine {
                             vk::PipelineBindPoint::GRAPHICS,
                             pipeline.pipeline_layouts[&object.shader_set],
                             0,
-                            &[pipeline.descriptors_sets[&object.shader_set]
-                                [current_frame * scene.objects.len() + obj_index]],
+                            &[pipeline.descriptors_sets[&object.shader_set]],
                             &[],
                         );
                         device.cmd_draw_indexed(
@@ -573,11 +570,7 @@ impl Engine {
                             view: scene.camera.view_matrix(),
                             projection: cgmath::Matrix4::from(scene.camera.projection),
                         };
-                        pipeline.update_uniforms(
-                            line.shader_set.clone(),
-                            mvp,
-                            current_frame * scene.lines.len() + line_index,
-                        );
+                        pipeline.update_uniforms(line.shader_set.clone(), mvp, current_frame);
 
                         line.mesh.bind_buffers(self, current_frame);
                         device.cmd_bind_descriptor_sets(
@@ -585,8 +578,7 @@ impl Engine {
                             vk::PipelineBindPoint::GRAPHICS,
                             pipeline.pipeline_layouts[&line.shader_set],
                             0,
-                            &[pipeline.descriptors_sets[&line.shader_set]
-                                [current_frame * scene.lines.len() + line_index]],
+                            &[pipeline.descriptors_sets[&line.shader_set]],
                             &[],
                         );
                         device.cmd_set_line_width(draw_command_buffer, line.width);

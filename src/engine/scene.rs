@@ -10,7 +10,7 @@ use cgmath::{Angle, Rotation3};
 
 use crate::engine::memory::{DataOrganization, IndexBuffer, Texture, VertexBuffer};
 use crate::engine::shader::{FragmentShader, VertexShader};
-use crate::engine::{Engine, ShaderInterface};
+use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT, ShaderInterface};
 
 pub struct Camera {
     position: cgmath::Point3<f32>,
@@ -32,16 +32,16 @@ impl Camera {
     }
 
     pub fn move_offset(&mut self, offset: &cgmath::Vector3<f32>) {
-        if offset.z > 0.0 {
+        if offset.z < 0.002 || offset.z > 0.002 {
             let rad = cgmath::Rad(self.rotation.y);
             self.position.x += rad.sin() * -1.0 * offset.z;
             self.position.z += rad.cos() * offset.z;
         }
-        if offset.x > 0.0 {
+        if offset.x < 0.002 || offset.x > 0.002 {
             let rad = cgmath::Rad(self.rotation.y - 90.0);
             self.position.x += rad.sin() * -1.0 * offset.x;
             self.position.z += rad.cos() * offset.x;
-        }
+        } // TODO special case for both axis
         self.position.y += offset.y;
     }
 
@@ -334,7 +334,7 @@ impl Scene {
             Vec<vk::VertexInputAttributeDescription>,
             Vec<vk::VertexInputBindingDescription>,
             FragmentShader,
-            Vec<vk::DescriptorSet>,
+            vk::DescriptorSet,
             vk::PipelineInputAssemblyStateCreateInfo,
             vk::PipelineRasterizationStateCreateInfo,
         ),
@@ -357,7 +357,8 @@ impl Scene {
                     VertexShader::new(
                         &engine,
                         &shader_set.vertex_spv.borrow(),
-                        &descriptor_sets,
+                        &descriptor_sets[0],
+                        &shader_set.vertex_descriptors,
                         DataOrganization::ObjectMajor,
                     );
                 let fragment_shader = FragmentShader::new(
@@ -402,7 +403,7 @@ impl Scene {
                         input_attribute_descriptions,
                         input_binding_descriptions,
                         fragment_shader,
-                        descriptor_sets,
+                        descriptor_sets[0],
                         vertex_input_assembly_state_info,
                         rasterization_info,
                     ),
@@ -445,14 +446,9 @@ impl Scene {
         result
     }
 
-    pub fn get_pool_sizes(&self) -> Vec<vk::DescriptorPoolSize> {
+    pub fn get_pool(&self, engine: &Engine) -> vk::DescriptorPool {
         let mut types_map: HashMap<vk::DescriptorType, vk::DescriptorPoolSize> = HashMap::new();
-        for shader_set in self
-            .objects
-            .iter()
-            .map(|x| x.shader_set.clone())
-            .chain(self.lines.iter().map(|x1| x1.shader_set.clone()))
-        {
+        for shader_set in self.shader_sets.iter() {
             for descriptor in shader_set
                 .clone()
                 .vertex_descriptors
@@ -472,7 +468,19 @@ impl Scene {
                 }
             }
         }
-        types_map.into_values().collect()
+        let mut descriptor_sizes: Vec<vk::DescriptorPoolSize> = types_map.into_values().collect();
+        descriptor_sizes.iter_mut().for_each(|e| {
+            e.descriptor_count *= MAX_FRAMES_IN_FLIGHT;
+        });
+        let descriptor_pool_info = vk::DescriptorPoolCreateInfo::default()
+            .pool_sizes(&descriptor_sizes)
+            .max_sets(descriptor_sizes.len() as u32);
+        unsafe {
+            engine
+                .device
+                .create_descriptor_pool(&descriptor_pool_info, None)
+                .unwrap()
+        }
     }
 }
 

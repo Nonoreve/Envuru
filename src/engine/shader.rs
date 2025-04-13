@@ -27,7 +27,8 @@ impl VertexShader {
     pub fn new(
         engine: &Engine,
         spv_data: &Vec<u32>,
-        descriptor_sets: &Vec<vk::DescriptorSet>,
+        descriptor_set: &vk::DescriptorSet,
+        vertex_descriptors: &Vec<vk::DescriptorType>,
         _style: DataOrganization, // TODO DataOrganization
     ) -> (
         VertexShader,
@@ -57,19 +58,33 @@ impl VertexShader {
         let mut uniform_mvp_buffers = Vec::new();
 
         unsafe {
-            for descriptor_set in descriptor_sets {
-                let uniform_mvp_buffer = UniformBuffer::new::<MvpUbo>(engine);
-                let write_desc_sets = [vk::WriteDescriptorSet {
-                    dst_set: descriptor_set.clone(),
-                    dst_binding: 0,
-                    dst_array_element: 0,
-                    descriptor_count: 1,
-                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
-                    p_buffer_info: &uniform_mvp_buffer.descriptor,
-                    ..Default::default()
-                }];
+            for descriptor in vertex_descriptors.iter() {
+                // TODO make dynamically per FRAME_IN_FLIGHT
+                let uniform_mvp_buffer_1 = UniformBuffer::new::<MvpUbo>(engine);
+                let uniform_mvp_buffer_2 = UniformBuffer::new::<MvpUbo>(engine);
+                let write_desc_sets = [
+                    vk::WriteDescriptorSet {
+                        dst_set: descriptor_set.clone(),
+                        dst_binding: 0,
+                        dst_array_element: 0,
+                        descriptor_count: 1,
+                        descriptor_type: descriptor.clone(),
+                        p_buffer_info: &uniform_mvp_buffer_1.descriptor,
+                        ..Default::default()
+                    },
+                    vk::WriteDescriptorSet {
+                        dst_set: descriptor_set.clone(),
+                        dst_binding: 0,
+                        dst_array_element: 0,
+                        descriptor_count: 1,
+                        descriptor_type: descriptor.clone(),
+                        p_buffer_info: &uniform_mvp_buffer_2.descriptor,
+                        ..Default::default()
+                    },
+                ];
                 engine.device.update_descriptor_sets(&write_desc_sets, &[]);
-                uniform_mvp_buffers.push(uniform_mvp_buffer);
+                uniform_mvp_buffers.push(uniform_mvp_buffer_1);
+                uniform_mvp_buffers.push(uniform_mvp_buffer_2);
             }
             let module = engine
                 .device
@@ -112,7 +127,7 @@ impl FragmentShader {
     ) -> Self {
         let sampler_info = vk::SamplerCreateInfo {
             flags: Default::default(),
-            mag_filter: vk::Filter::LINEAR,
+            mag_filter: vk::Filter::NEAREST,
             min_filter: vk::Filter::LINEAR,
             mipmap_mode: vk::SamplerMipmapMode::LINEAR,
             address_mode_u: vk::SamplerAddressMode::MIRRORED_REPEAT,

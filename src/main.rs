@@ -178,20 +178,23 @@ fn main() {
     ];
     let line_indices = [0u32, 1];
     let line_mesh = Rc::new(Mesh::new(line_vertices.into(), line_indices.into()));
-    let line_model = cgmath::Decomposed {
-        scale: 1.0,
-        rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(78.0)),
-        disp: cgmath::vec3(0.0, 0.0, 0.0),
-    };
-    let line = Line {
-        mesh: Rc::clone(&line_mesh),
-        model: line_model,
-        width: 4.0,
-        shader_set: Rc::clone(&line_shader_set),
-    };
+    let mut lines = Vec::new();
+    let scale = 100.0;
+    for i in 0..20 {
+        lines.push(Line {
+            mesh: Rc::clone(&line_mesh),
+            model: cgmath::Decomposed {
+                scale,
+                rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(0.01)),
+                disp: cgmath::vec3(0.0, -scale / 2.0, (-i as f32) * 2.0),
+            },
+            width: 4.0,
+            shader_set: Rc::clone(&line_shader_set),
+        })
+    }
     let start_scene = Scene::new(
         camera,
-        vec![line],
+        lines,
         vec![demo, demo2, demo3],
         vec![rectangle_mesh, rectangle_mesh2, line_mesh],
         vec![charlie, potoo],

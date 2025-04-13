@@ -1,12 +1,13 @@
-use ash::{util, vk};
 use std::collections::HashMap;
 use std::ffi;
 use std::mem::ManuallyDrop;
 use std::rc::Rc;
 
+use ash::{util, vk};
+
+use crate::engine::Engine;
 use crate::engine::scene::{MvpUbo, Scene, ShaderSet};
 use crate::engine::shader::{FragmentShader, VertexShader};
-use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT};
 
 pub struct Pipelines {
     pub renderpass: vk::RenderPass,
@@ -16,7 +17,7 @@ pub struct Pipelines {
     pub frames: u64,
     descriptor_set_layouts: ManuallyDrop<Vec<vk::DescriptorSetLayout>>,
     descriptor_pool: vk::DescriptorPool,
-    pub descriptors_sets: HashMap<Rc<ShaderSet>, Vec<vk::DescriptorSet>>,
+    pub descriptors_sets: HashMap<Rc<ShaderSet>, vk::DescriptorSet>,
     pub aspect_ratio: f32,
     vertex_shaders: ManuallyDrop<HashMap<Rc<ShaderSet>, VertexShader>>,
     fragment_shaders: ManuallyDrop<HashMap<Rc<ShaderSet>, FragmentShader>>,
@@ -92,37 +93,24 @@ impl Pipelines {
                         .unwrap()
                 })
                 .collect();
-            let mut descriptor_sizes = scene.get_pool_sizes();
-            descriptor_sizes.iter_mut().for_each(|e| {
-                e.descriptor_count *= MAX_FRAMES_IN_FLIGHT;
-            });
-            let descriptor_pool_info = vk::DescriptorPoolCreateInfo::default()
-                .pool_sizes(&descriptor_sizes)
-                .max_sets(MAX_FRAMES_IN_FLIGHT * (scene.objects.len() + scene.lines.len()) as u32);
-            let descriptor_pool = engine
-                .device
-                .create_descriptor_pool(&descriptor_pool_info, None)
-                .unwrap();
+            let descriptor_pool = scene.get_pool(engine);
             let descriptor_set_layouts = scene.get_descriptor_set_layouts(engine);
             let mut duplicated_set_layouts = HashMap::new();
             for (shader_set, descriptor_set_layout) in descriptor_set_layouts.iter() {
-                let desc_set_layouts: Vec<vk::DescriptorSetLayout> = (0..MAX_FRAMES_IN_FLIGHT
-                    * scene.get_shader_set_users(shader_set))
-                    .map(|_| descriptor_set_layout.clone())
-                    .collect();
+                let desc_set_layouts = [descriptor_set_layout.clone()];
                 duplicated_set_layouts.insert(shader_set.clone(), desc_set_layouts);
             }
             let mut desc_alloc_infos = HashMap::new();
             for (shader_set, duplicated_set_layout) in duplicated_set_layouts.iter() {
                 let desc_alloc_info = vk::DescriptorSetAllocateInfo::default()
                     .descriptor_pool(descriptor_pool)
-                    .set_layouts(&duplicated_set_layout);
+                    .set_layouts(duplicated_set_layout);
                 desc_alloc_infos.insert(shader_set.clone(), desc_alloc_info);
             }
             let mut pipeline_layouts = HashMap::new();
             for (shader_set, duplicated_set_layout) in duplicated_set_layouts.iter() {
                 let layout_create_info =
-                    vk::PipelineLayoutCreateInfo::default().set_layouts(&duplicated_set_layout);
+                    vk::PipelineLayoutCreateInfo::default().set_layouts(duplicated_set_layout);
                 let pipeline_layout = engine
                     .device
                     .create_pipeline_layout(&layout_create_info, None)
@@ -189,7 +177,7 @@ impl Pipelines {
                     input_attribute_descriptions,
                     input_binding_descriptions,
                     fragment_shader,
-                    descriptor_sets,
+                    descriptor_set,
                     vertex_input_assembly_state_info,
                     rasterization_info,
                 ) = tuple;
@@ -212,7 +200,7 @@ impl Pipelines {
                 input_attributes_descriptions
                     .insert(shader_set.clone(), input_attribute_descriptions);
                 input_bindings_descriptions.insert(shader_set.clone(), input_binding_descriptions);
-                descriptors_sets.insert(shader_set.clone(), descriptor_sets);
+                descriptors_sets.insert(shader_set.clone(), descriptor_set);
                 vertex_shaders.insert(shader_set.clone(), vertex_shader);
                 fragment_shaders.insert(shader_set.clone(), fragment_shader);
                 shader_stages_create_infos.insert(shader_set.clone(), shader_stage_create_infos);
