@@ -1,5 +1,6 @@
 use std::cell::{OnceCell, RefCell};
 use std::collections::HashMap;
+use std::f32::consts::PI;
 use std::hash::{Hash, Hasher};
 use std::io::Cursor;
 use std::rc::Rc;
@@ -11,6 +12,8 @@ use cgmath::{Angle, Rotation3};
 use crate::engine::memory::{DataOrganization, IndexBuffer, Texture, VertexBuffer};
 use crate::engine::shader::{FragmentShader, VertexShader};
 use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT, ShaderInterface};
+
+const RIGHT_ANGLE: f32 = PI/2.0;
 
 pub struct Camera {
     position: cgmath::Point3<f32>,
@@ -32,13 +35,13 @@ impl Camera {
     }
 
     pub fn move_offset(&mut self, offset: &cgmath::Vector3<f32>) {
-        if offset.z < 0.002 || offset.z > 0.002 {
+        if offset.z < 0.0002 || offset.z > 0.0002 {
             let rad = cgmath::Rad(self.rotation.y);
             self.position.x += rad.sin() * -1.0 * offset.z;
             self.position.z += rad.cos() * offset.z;
         }
-        if offset.x < 0.002 || offset.x > 0.002 {
-            let rad = cgmath::Rad(self.rotation.y - 90.0);
+        if offset.x < 0.0002 || offset.x > 0.0002 {
+            let rad = cgmath::Rad(self.rotation.y - RIGHT_ANGLE);
             self.position.x += rad.sin() * -1.0 * offset.x;
             self.position.z += rad.cos() * offset.x;
         } // TODO special case for both axis
@@ -62,6 +65,10 @@ impl Camera {
 
     pub fn rotate(&mut self, offset: cgmath::Vector3<f32>) {
         self.rotation += offset
+    }
+
+    pub fn position(&self) -> cgmath::Point3<f32> {
+        self.position
     }
 }
 
@@ -429,21 +436,6 @@ impl Scene {
             }
         }
         descriptor_set_layouts
-    }
-
-    pub fn get_shader_set_users(&self, shader_set: &Rc<ShaderSet>) -> u32 {
-        let mut result = 0;
-        for object in self.objects.iter() {
-            if &object.shader_set.index.get().unwrap() == &shader_set.index.get().unwrap() {
-                result += 1
-            }
-        }
-        for line in self.lines.iter() {
-            if &line.shader_set.index.get().unwrap() == &shader_set.index.get().unwrap() {
-                result += 1
-            }
-        }
-        result
     }
 
     pub fn get_pool(&self, engine: &Engine) -> vk::DescriptorPool {

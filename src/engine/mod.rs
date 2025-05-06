@@ -509,7 +509,7 @@ impl Engine {
                         &render_pass_begin_info,
                         vk::SubpassContents::INLINE,
                     );
-                    for (obj_index, object) in scene.objects.iter().enumerate() {
+                    for object in scene.objects.iter() {
                         let mut shader_set_index = usize::MAX;
                         for (i, shader_set) in pipeline.shader_set_order.iter().enumerate() {
                             if &object.shader_set == shader_set {
@@ -550,7 +550,7 @@ impl Engine {
                             1,
                         );
                     }
-                    for (line_index, line) in scene.lines.iter().enumerate() {
+                    for line in scene.lines.iter() {
                         let mut shader_set_index = usize::MAX;
                         for (i, shader_set) in pipeline.shader_set_order.iter().enumerate() {
                             if &line.shader_set == shader_set {
