@@ -30,6 +30,7 @@ impl VertexShader {
         descriptor_set: &vk::DescriptorSet,
         vertex_descriptors: &Vec<vk::DescriptorType>,
         _style: DataOrganization, // TODO DataOrganization
+        users: u64,
     ) -> (
         VertexShader,
         Vec<vk::VertexInputAttributeDescription>,
@@ -60,8 +61,8 @@ impl VertexShader {
         unsafe {
             for descriptor in vertex_descriptors.iter() {
                 // TODO make dynamically per FRAME_IN_FLIGHT
-                let uniform_mvp_buffer_1 = UniformBuffer::new::<MvpUbo>(engine);
-                let uniform_mvp_buffer_2 = UniformBuffer::new::<MvpUbo>(engine);
+                let uniform_mvp_buffer_1 = UniformBuffer::new::<MvpUbo>(engine, users);
+                let uniform_mvp_buffer_2 = UniformBuffer::new::<MvpUbo>(engine, users);
                 let write_desc_sets = [
                     vk::WriteDescriptorSet {
                         dst_set: descriptor_set.clone(),

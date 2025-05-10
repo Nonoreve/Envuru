@@ -298,7 +298,7 @@ impl Pipelines {
     pub fn update_uniforms(
         &self,
         pipeline_index: Rc<ShaderSet>,
-        mvp: MvpUbo,
+        mvps: Vec<MvpUbo>,
         current_frame: usize,
     ) {
         unsafe {
@@ -311,7 +311,7 @@ impl Pipelines {
                     .memory_requirements
                     .size,
             );
-            alignment.copy_from_slice(&[mvp]);
+            alignment.copy_from_slice(mvps.as_slice());
         }
     }
 

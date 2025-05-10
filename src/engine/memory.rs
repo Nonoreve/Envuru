@@ -228,10 +228,10 @@ pub struct UniformBuffer {
 }
 
 impl UniformBuffer {
-    pub fn new<T>(engine: &Engine) -> Self {
+    pub fn new<T>(engine: &Engine, instances: u64) -> Self {
         let size = size_of::<T>() as u64;
         let create_info = vk::BufferCreateInfo {
-            size,
+            size: size * instances,
             usage: vk::BufferUsageFlags::UNIFORM_BUFFER,
             sharing_mode: vk::SharingMode::EXCLUSIVE,
             ..Default::default()

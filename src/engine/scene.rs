@@ -13,7 +13,7 @@ use crate::engine::memory::{DataOrganization, IndexBuffer, Texture, VertexBuffer
 use crate::engine::shader::{FragmentShader, VertexShader};
 use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT, ShaderInterface};
 
-const RIGHT_ANGLE: f32 = PI/2.0;
+const RIGHT_ANGLE: f32 = PI / 2.0;
 
 pub struct Camera {
     position: cgmath::Point3<f32>,
@@ -27,8 +27,9 @@ impl Camera {
         rotation: cgmath::Vector3<f32>,
         projection: cgmath::PerspectiveFov<f32>,
     ) -> Self {
+        let fliped = cgmath::point3(position.x, -position.y, position.z);
         Self {
-            position,
+            position: fliped,
             rotation,
             projection,
         }
@@ -45,7 +46,7 @@ impl Camera {
             self.position.x += rad.sin() * -1.0 * offset.x;
             self.position.z += rad.cos() * offset.x;
         } // TODO special case for both axis
-        self.position.y += offset.y;
+        self.position.y -= offset.y;
     }
 
     pub fn view_matrix(&self) -> cgmath::Matrix4<f32> {
@@ -209,7 +210,7 @@ impl ShaderSet {
         let vertex_descriptors = vertex_shader_interface
             .iter()
             .map(|shader_interface| match shader_interface {
-                ShaderInterface::UniformBuffer => vk::DescriptorType::UNIFORM_BUFFER,
+                ShaderInterface::UniformBuffer => vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
                 ShaderInterface::CombinedImageSampler => vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
             })
             .collect();
@@ -367,6 +368,7 @@ impl Scene {
                         &descriptor_sets[0],
                         &shader_set.vertex_descriptors,
                         DataOrganization::ObjectMajor,
+                        self.objects.len() as u64
                     );
                 let fragment_shader = FragmentShader::new(
                     &engine,

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::rc::Rc;
 use std::{borrow, ffi, mem, process, sync};
 
 use ash::ext::debug_utils;
@@ -9,7 +11,7 @@ use winit::{application, dpi, event, event_loop, window};
 use crate::engine::controller::Controller;
 use crate::engine::memory::DepthImage;
 use crate::engine::pipeline::Pipelines;
-use crate::engine::scene::{MvpUbo, Scene};
+use crate::engine::scene::{MvpUbo, Scene, ShaderSet};
 use crate::engine::swapchain::Swapchain;
 
 pub mod controller;
@@ -478,9 +480,9 @@ impl Engine {
         ];
         let viewports = [vk::Viewport {
             x: 0.0,
-            y: 0.0,
+            y: self.swapchain.surface_resolution.height as f32,
             width: self.swapchain.surface_resolution.width as f32,
-            height: self.swapchain.surface_resolution.height as f32,
+            height: -(self.swapchain.surface_resolution.height as f32),
             min_depth: 0.0,
             max_depth: 1.0,
         }];
@@ -494,6 +496,24 @@ impl Engine {
                 .framebuffer(pipeline.framebuffers[present_index as usize])
                 .render_area(self.swapchain.surface_resolution.into())
                 .clear_values(&clear_values);
+
+            let mut mvps_per_shaderset: HashMap<Rc<ShaderSet>, Vec<MvpUbo>> = HashMap::new();
+
+            for (obj_index, object) in scene.objects.iter().enumerate() {
+                let mvp = MvpUbo {
+                    model: cgmath::Matrix4::from(object.model),
+                    view: scene.camera.view_matrix(),
+                    projection: cgmath::Matrix4::from(scene.camera.projection),
+                };
+                if let Some(mvps) = mvps_per_shaderset.get_mut(&object.shader_set) {
+                    mvps.push(mvp);
+                } else {
+                    mvps_per_shaderset.insert(object.shader_set.clone(), vec![mvp]);
+                }
+            }
+            for (shader_set, mvps) in mvps_per_shaderset {
+                pipeline.update_uniforms(shader_set.clone(), mvps, current_frame);
+            }
 
             Engine::record_submit_commandbuffer(
                 &self.device,
@@ -509,7 +529,7 @@ impl Engine {
                         &render_pass_begin_info,
                         vk::SubpassContents::INLINE,
                     );
-                    for object in scene.objects.iter() {
+                    for (obj_index, object) in scene.objects.iter().enumerate() {
                         let mut shader_set_index = usize::MAX;
                         for (i, shader_set) in pipeline.shader_set_order.iter().enumerate() {
                             if &object.shader_set == shader_set {
@@ -524,13 +544,6 @@ impl Engine {
                         );
                         device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
                         device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
-                        // let direction = scene.camera.rotation.;
-                        let mvp = MvpUbo {
-                            model: cgmath::Matrix4::from(object.model),
-                            view: scene.camera.view_matrix(),
-                            projection: cgmath::Matrix4::from(scene.camera.projection),
-                        };
-                        pipeline.update_uniforms(object.shader_set.clone(), mvp, current_frame);
 
                         object.mesh.bind_buffers(self, current_frame);
                         device.cmd_bind_descriptor_sets(
@@ -539,7 +552,7 @@ impl Engine {
                             pipeline.pipeline_layouts[&object.shader_set],
                             0,
                             &[pipeline.descriptors_sets[&object.shader_set]],
-                            &[],
+                            &[(obj_index * size_of::<MvpUbo>()) as u32],
                         );
                         device.cmd_draw_indexed(
                             draw_command_buffer,
@@ -550,7 +563,7 @@ impl Engine {
                             1,
                         );
                     }
-                    for line in scene.lines.iter() {
+                    for (line_index, line) in scene.lines.iter().enumerate() {
                         let mut shader_set_index = usize::MAX;
                         for (i, shader_set) in pipeline.shader_set_order.iter().enumerate() {
                             if &line.shader_set == shader_set {
@@ -570,7 +583,11 @@ impl Engine {
                             view: scene.camera.view_matrix(),
                             projection: cgmath::Matrix4::from(scene.camera.projection),
                         };
-                        pipeline.update_uniforms(line.shader_set.clone(), mvp, current_frame);
+                        // pipeline.update_uniforms(
+                        //     line.shader_set.clone(),
+                        //     mvp,
+                        //     current_frame * scene.lines.len() + line_index,
+                        // );
 
                         line.mesh.bind_buffers(self, current_frame);
                         device.cmd_bind_descriptor_sets(
