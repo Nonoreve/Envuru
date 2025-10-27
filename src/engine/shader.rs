@@ -26,9 +26,9 @@ pub struct VertexShader {
 impl VertexShader {
     pub fn new(
         engine: &Engine,
-        spv_data: &Vec<u32>,
+        spv_data: &[u32],
         descriptor_set: &vk::DescriptorSet,
-        vertex_descriptors: &Vec<vk::DescriptorType>,
+        vertex_descriptors: &[vk::DescriptorType],
         _style: DataOrganization, // TODO DataOrganization
         users: u64,
     ) -> (
@@ -65,20 +65,20 @@ impl VertexShader {
                 let uniform_mvp_buffer_2 = UniformBuffer::new::<MvpUbo>(engine, users);
                 let write_desc_sets = [
                     vk::WriteDescriptorSet {
-                        dst_set: descriptor_set.clone(),
+                        dst_set: *descriptor_set,
                         dst_binding: 0,
                         dst_array_element: 0,
                         descriptor_count: 1,
-                        descriptor_type: descriptor.clone(),
+                        descriptor_type: *descriptor,
                         p_buffer_info: &uniform_mvp_buffer_1.descriptor,
                         ..Default::default()
                     },
                     vk::WriteDescriptorSet {
-                        dst_set: descriptor_set.clone(),
+                        dst_set: *descriptor_set,
                         dst_binding: 0,
                         dst_array_element: 0,
                         descriptor_count: 1,
-                        descriptor_type: descriptor.clone(),
+                        descriptor_type: *descriptor,
                         p_buffer_info: &uniform_mvp_buffer_2.descriptor,
                         ..Default::default()
                     },
@@ -121,10 +121,10 @@ pub struct FragmentShader {
 impl FragmentShader {
     pub fn new(
         engine: &Engine,
-        spv_data: &Vec<u32>,
-        objects: &Vec<Object>,
-        descriptor_sets: &Vec<vk::DescriptorSet>,
-        descriptor_types: &Vec<vk::DescriptorType>,
+        spv_data: &[u32],
+        objects: &[Object],
+        descriptor_sets: &[vk::DescriptorSet],
+        descriptor_types: &[vk::DescriptorType],
     ) -> Self {
         let sampler_info = vk::SamplerCreateInfo {
             flags: Default::default(),
@@ -156,7 +156,7 @@ impl FragmentShader {
                         .material
                         .get_descriptor_image_info(sampler, 0);
                     let write_desc_sets = [vk::WriteDescriptorSet {
-                        dst_set: descriptor_set.clone(),
+                        dst_set: *descriptor_set,
                         dst_binding: 1,
                         dst_array_element: 0,
                         descriptor_count: 1,

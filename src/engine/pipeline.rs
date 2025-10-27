@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::ffi;
 use std::mem::ManuallyDrop;
 use std::rc::Rc;
 
@@ -97,7 +96,7 @@ impl Pipelines {
             let descriptor_set_layouts = scene.get_descriptor_set_layouts(engine);
             let mut duplicated_set_layouts = HashMap::new();
             for (shader_set, descriptor_set_layout) in descriptor_set_layouts.iter() {
-                let desc_set_layouts = [descriptor_set_layout.clone()];
+                let desc_set_layouts = [*descriptor_set_layout];
                 duplicated_set_layouts.insert(shader_set.clone(), desc_set_layouts);
             }
             let mut desc_alloc_infos = HashMap::new();
@@ -162,7 +161,7 @@ impl Pipelines {
             ];
             let dynamic_state_info =
                 vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_state);
-            let shader_entry_name = ffi::CStr::from_bytes_with_nul_unchecked(b"main\0");
+            let shader_entry_name = c"main";
             let mut vertex_shaders = HashMap::new();
             let mut fragment_shaders = HashMap::new();
             let mut input_attributes_descriptions = HashMap::new();
@@ -222,12 +221,12 @@ impl Pipelines {
             for (shader_set, shader_stages_create_info) in shader_stages_create_infos.iter() {
                 let graphic_pipeline_info = vk::GraphicsPipelineCreateInfo::default()
                     .stages(shader_stages_create_info)
-                    .vertex_input_state(&vertex_input_state_infos.get(shader_set).unwrap())
+                    .vertex_input_state(vertex_input_state_infos.get(shader_set).unwrap())
                     .input_assembly_state(
-                        &vertex_input_assembly_state_infos.get(shader_set).unwrap(),
+                        vertex_input_assembly_state_infos.get(shader_set).unwrap(),
                     )
                     .viewport_state(&viewport_state_info)
-                    .rasterization_state(&rasterization_infos.get(shader_set).unwrap())
+                    .rasterization_state(rasterization_infos.get(shader_set).unwrap())
                     .multisample_state(&multisample_state_info)
                     .depth_stencil_state(&depth_state_info)
                     .color_blend_state(&color_blend_state)

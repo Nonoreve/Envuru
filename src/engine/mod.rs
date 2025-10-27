@@ -1,3 +1,4 @@
+#![allow(clippy::mutable_key_type)]
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::{borrow, ffi, mem, process, sync};
@@ -50,7 +51,7 @@ struct WindowHandler {
     starting_scene: usize,
 }
 
-impl<'a> application::ApplicationHandler for WindowHandler {
+impl application::ApplicationHandler for WindowHandler {
     fn resumed(&mut self, event_loop: &event_loop::ActiveEventLoop) {
         if self.engine.is_none() {
             let engine = Engine::new(
@@ -203,7 +204,7 @@ impl EngineBuilder {
 }
 
 static ENTRY: sync::LazyLock<ash::Entry, fn() -> ash::Entry> =
-    sync::LazyLock::new(|| ash::Entry::linked());
+    sync::LazyLock::new(ash::Entry::linked);
 pub(crate) const DIRECT_MAPPING: vk::ComponentMapping = vk::ComponentMapping {
     r: vk::ComponentSwizzle::R,
     g: vk::ComponentSwizzle::G,
@@ -499,7 +500,7 @@ impl Engine {
 
             let mut mvps_per_shaderset: HashMap<Rc<ShaderSet>, Vec<MvpUbo>> = HashMap::new();
 
-            for (obj_index, object) in scene.objects.iter().enumerate() {
+            for object in scene.objects.iter() {
                 let mvp = MvpUbo {
                     model: cgmath::Matrix4::from(object.model),
                     view: scene.camera.view_matrix(),

@@ -1,3 +1,4 @@
+#![allow(clippy::mutable_key_type)]
 use std::cell::{OnceCell, RefCell};
 use std::collections::HashMap;
 use std::f32::consts::PI;
@@ -35,13 +36,14 @@ impl Camera {
         }
     }
 
+    #[allow(clippy::neg_multiply)]
     pub fn move_offset(&mut self, offset: &cgmath::Vector3<f32>) {
-        if offset.z < 0.0002 || offset.z > 0.0002 {
+        if offset.z < 0.0002 || offset.z > 0.00021 {
             let rad = cgmath::Rad(self.rotation.y);
             self.position.x += rad.sin() * -1.0 * offset.z;
             self.position.z += rad.cos() * offset.z;
         }
-        if offset.x < 0.0002 || offset.x > 0.0002 {
+        if offset.x < 0.0002 || offset.x > 0.00021 {
             let rad = cgmath::Rad(self.rotation.y - RIGHT_ANGLE);
             self.position.x += rad.sin() * -1.0 * offset.x;
             self.position.z += rad.cos() * offset.x;
@@ -236,7 +238,7 @@ impl ShaderSet {
         for (i, vertex_descriptor) in self.vertex_descriptors.iter().enumerate() {
             desc_layout_bindings.push(vk::DescriptorSetLayoutBinding {
                 binding: i as u32,
-                descriptor_type: vertex_descriptor.clone(),
+                descriptor_type: *vertex_descriptor,
                 descriptor_count: 1,
                 stage_flags: vk::ShaderStageFlags::VERTEX,
                 ..Default::default()
@@ -245,7 +247,7 @@ impl ShaderSet {
         for (i, fragment_descriptor) in self.fragment_descriptors.iter().enumerate() {
             desc_layout_bindings.push(vk::DescriptorSetLayoutBinding {
                 binding: (self.vertex_descriptors.len() + i) as u32,
-                descriptor_type: fragment_descriptor.clone(),
+                descriptor_type: *fragment_descriptor,
                 descriptor_count: 1,
                 stage_flags: vk::ShaderStageFlags::FRAGMENT,
                 ..Default::default()
@@ -262,7 +264,7 @@ impl ShaderSet {
     }
 
     pub fn get_index(&self) -> usize {
-        self.index.get().unwrap().clone()
+        *self.index.get().unwrap()
     }
 }
 
@@ -363,7 +365,7 @@ impl Scene {
                     .unwrap();
                 let (vertex_shader, input_attribute_descriptions, input_binding_descriptions) =
                     VertexShader::new(
-                        &engine,
+                        engine,
                         &shader_set.vertex_spv.borrow(),
                         &descriptor_sets[0],
                         &shader_set.vertex_descriptors,
@@ -371,7 +373,7 @@ impl Scene {
                         self.objects.len() as u64
                     );
                 let fragment_shader = FragmentShader::new(
-                    &engine,
+                    engine,
                     &shader_set.fragment_spv.borrow(),
                     &self.objects,
                     &descriptor_sets,
@@ -380,17 +382,17 @@ impl Scene {
                 shader_set.vertex_spv.borrow_mut().clear();
                 shader_set.fragment_spv.borrow_mut().clear();
                 let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo {
-                    topology: topology.clone(),
+                    topology: *topology,
                     ..Default::default()
                 };
-                let rasterization_info = match topology {
-                    &vk::PrimitiveTopology::LINE_LIST => vk::PipelineRasterizationStateCreateInfo {
+                let rasterization_info = match *topology {
+                    vk::PrimitiveTopology::LINE_LIST => vk::PipelineRasterizationStateCreateInfo {
                         front_face: vk::FrontFace::COUNTER_CLOCKWISE,
                         line_width: 10.0,
                         polygon_mode: vk::PolygonMode::LINE,
                         ..Default::default()
                     },
-                    &vk::PrimitiveTopology::POINT_LIST => {
+                    vk::PrimitiveTopology::POINT_LIST => {
                         vk::PipelineRasterizationStateCreateInfo {
                             front_face: vk::FrontFace::COUNTER_CLOCKWISE,
                             line_width: 2.0,
@@ -432,10 +434,7 @@ impl Scene {
                 shader_set.clone(),
                 shader_set.get_descriptor_set_layout(engine),
             );
-            match result {
-                Some(_) => panic!("Duplicate entry inserted into hash"),
-                None => (),
-            }
+            if result.is_some() { panic!("Duplicate entry inserted into hash") }
         }
         descriptor_set_layouts
     }
@@ -453,9 +452,9 @@ impl Scene {
                     types_map.get_mut(descriptor).unwrap().descriptor_count += 1;
                 } else {
                     types_map.insert(
-                        descriptor.clone(),
+                        *descriptor,
                         vk::DescriptorPoolSize {
-                            ty: descriptor.clone(),
+                            ty: *descriptor,
                             descriptor_count: 1,
                         },
                     );

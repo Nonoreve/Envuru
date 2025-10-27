@@ -65,7 +65,7 @@ impl Controller {
         &mut self,
         event: event::WindowEvent,
         frames: u64,
-        window_origin: &cgmath::Vector2<f64>,
+        _window_origin: &cgmath::Vector2<f64>,
     ) {
         match event {
             event::WindowEvent::KeyboardInput {
@@ -116,7 +116,7 @@ impl Controller {
                     && self.mouse_data.1.y > 0.02
                     && frames > self.mouse_data.0
                 {
-                    self.old_mouse_data = self.mouse_data.clone()
+                    self.old_mouse_data = self.mouse_data
                 }
                 match axis {
                     0 => self.mouse_data = (frames, cgmath::vec2(value, self.mouse_data.1.y)),
@@ -169,7 +169,7 @@ impl Controller {
     fn retrieve(&self, mok: &MouseOrKey) -> Option<usize> {
         self.bind_actions.iter().find_map(
             |(k, v)| {
-                if &v.mok == mok { Some(k.clone()) } else { None }
+                if &v.mok == mok { Some(*k) } else { None }
             },
         )
     }

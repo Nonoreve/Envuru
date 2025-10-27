@@ -117,7 +117,7 @@ pub struct VertexBuffer(GraphicsBuffer);
 impl VertexBuffer {
     pub fn new(engine: &Engine, vertices: &[Vertex], _style: DataOrganization) -> Self {
         // TODO DataOrganization
-        let source_size = size_of_val(vertices.as_ref());
+        let source_size = size_of_val(vertices);
         let mut create_info = vk::BufferCreateInfo {
             size: source_size as vk::DeviceSize,
             usage: vk::BufferUsageFlags::TRANSFER_SRC,
@@ -144,7 +144,7 @@ impl VertexBuffer {
         }
         let destination = staging_buffer.stage_up(engine, create_info, source_size);
         staging_buffer.delete(engine);
-        Self { 0: destination }
+        Self(destination)
     }
 
     pub fn bind(&self, engine: &Engine, current_frame: usize) {
@@ -171,7 +171,7 @@ pub struct IndexBuffer {
 
 impl IndexBuffer {
     pub fn new(engine: &Engine, indices: &[u32]) -> Self {
-        let source_size = size_of_val(indices.as_ref());
+        let source_size = size_of_val(indices);
         let mut create_info = vk::BufferCreateInfo {
             size: source_size as vk::DeviceSize,
             usage: vk::BufferUsageFlags::TRANSFER_SRC,
@@ -543,13 +543,11 @@ impl DepthImage {
                 ..Default::default()
             };
             let image_view = device.create_image_view(&create_info, None).unwrap();
-            Self {
-                0: ImageBuffer {
+            Self(ImageBuffer {
                     image_view,
                     memory: device_memory,
                     image: vk_image,
-                },
-            }
+                })
         }
     }
 
