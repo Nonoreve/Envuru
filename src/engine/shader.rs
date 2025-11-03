@@ -1,10 +1,12 @@
-use std::mem;
-
 use ash::vk;
+use std::iter;
+use std::mem;
+use std::mem::ManuallyDrop;
+use std::rc::Rc;
 
 use crate::engine::Engine;
 use crate::engine::memory::{DataOrganization, UniformBuffer};
-use crate::engine::scene::{MvpUbo, Object, Vertex};
+use crate::engine::scene::{Material, MvpUbo, Vertex};
 
 #[macro_export]
 macro_rules! offset_of {
@@ -115,14 +117,14 @@ impl VertexShader {
 #[derive(Debug)]
 pub struct FragmentShader {
     pub module: vk::ShaderModule,
-    sampler: vk::Sampler,
+    samplers: ManuallyDrop<Vec<vk::Sampler>>,
 }
 
 impl FragmentShader {
     pub fn new(
         engine: &Engine,
         spv_data: &[u32],
-        objects: &[Object],
+        materials: &[Rc<Material>],
         descriptor_sets: &[vk::DescriptorSet],
         descriptor_types: &[vk::DescriptorType],
     ) -> Self {
@@ -147,21 +149,25 @@ impl FragmentShader {
         };
 
         unsafe {
-            let sampler = engine.device.create_sampler(&sampler_info, None).unwrap();
+            let samplers: Vec<vk::Sampler> = std::iter::repeat_n(
+                engine.device.create_sampler(&sampler_info, None).unwrap(),
+                materials.len(),
+            )
+            .collect();
             if descriptor_types.contains(&vk::DescriptorType::COMBINED_IMAGE_SAMPLER) {
-                for (i, descriptor_set) in descriptor_sets.iter().enumerate() {
-                    let tex_descriptor = objects
-                        .get(i % objects.len())
-                        .unwrap()
-                        .material
-                        .get_descriptor_image_info(sampler, 0);
+                let image_infos: Vec<vk::DescriptorImageInfo> = materials
+                    .iter()
+                    .enumerate()
+                    .map(|(i, material)| material.get_descriptor_image_info(samplers[i], 0))
+                    .collect();
+                for descriptor_set in descriptor_sets.iter() {
                     let write_desc_sets = [vk::WriteDescriptorSet {
                         dst_set: *descriptor_set,
                         dst_binding: 1,
                         dst_array_element: 0,
-                        descriptor_count: 1,
+                        descriptor_count: materials.len() as u32,
                         descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                        p_image_info: &tex_descriptor,
+                        p_image_info: image_infos.as_ptr(),
                         ..Default::default()
                     }];
                     engine.device.update_descriptor_sets(&write_desc_sets, &[]);
@@ -174,15 +180,18 @@ impl FragmentShader {
                 .expect("Fragment shader module error");
             Self {
                 module: fragment_shader_module,
-                sampler,
+                samplers: ManuallyDrop::new(samplers),
             }
         }
     }
 
-    pub fn delete(&self, engine: &Engine) {
+    pub fn delete(&mut self, engine: &Engine) {
         unsafe {
             engine.device.destroy_shader_module(self.module, None);
-            engine.device.destroy_sampler(self.sampler, None);
+            let samplers = ManuallyDrop::take(&mut self.samplers);
+            for sampler in samplers {
+                engine.device.destroy_sampler(sampler, None);
+            }
         }
     }
 }

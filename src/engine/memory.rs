@@ -544,10 +544,10 @@ impl DepthImage {
             };
             let image_view = device.create_image_view(&create_info, None).unwrap();
             Self(ImageBuffer {
-                    image_view,
-                    memory: device_memory,
-                    image: vk_image,
-                })
+                image_view,
+                memory: device_memory,
+                image: vk_image,
+            })
         }
     }
 

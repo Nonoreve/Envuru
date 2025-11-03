@@ -167,10 +167,8 @@ impl Controller {
     }
 
     fn retrieve(&self, mok: &MouseOrKey) -> Option<usize> {
-        self.bind_actions.iter().find_map(
-            |(k, v)| {
-                if &v.mok == mok { Some(*k) } else { None }
-            },
-        )
+        self.bind_actions
+            .iter()
+            .find_map(|(k, v)| if &v.mok == mok { Some(*k) } else { None })
     }
 }

@@ -106,10 +106,16 @@ impl Pipelines {
                     .set_layouts(duplicated_set_layout);
                 desc_alloc_infos.insert(shader_set.clone(), desc_alloc_info);
             }
+            let push_constants = &[vk::PushConstantRange {
+                stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                size: size_of::<u32>() as u32,
+                offset: 0,
+            }];
             let mut pipeline_layouts = HashMap::new();
             for (shader_set, duplicated_set_layout) in duplicated_set_layouts.iter() {
-                let layout_create_info =
-                    vk::PipelineLayoutCreateInfo::default().set_layouts(duplicated_set_layout);
+                let layout_create_info = vk::PipelineLayoutCreateInfo::default()
+                    .set_layouts(duplicated_set_layout)
+                    .push_constant_ranges(push_constants);
                 let pipeline_layout = engine
                     .device
                     .create_pipeline_layout(&layout_create_info, None)
@@ -343,8 +349,8 @@ impl Pipelines {
             for mesh in scene.meshes.iter() {
                 mesh.delete(engine);
             }
-            let fragment_shaders = ManuallyDrop::take(&mut self.fragment_shaders);
-            for fragment_shader in fragment_shaders {
+            let mut fragment_shaders = ManuallyDrop::take(&mut self.fragment_shaders);
+            for fragment_shader in fragment_shaders.iter_mut() {
                 fragment_shader.1.delete(engine);
             }
             for material in scene.materials.iter() {

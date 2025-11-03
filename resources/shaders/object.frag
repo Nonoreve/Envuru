@@ -4,12 +4,17 @@
 
 layout (location = 0) in vec2 uv;
 
-layout (binding = 1) uniform sampler2D samplerColor;
+layout (binding = 1) uniform sampler2D samplerColor[2];
 
 layout (location = 0) out vec4 uFragColor;
 
+layout(push_constant) uniform PER_OBJECT
+{
+    int imgIdx;
+}pc;
+
 void main() {
-    vec4 texture_color = texture(samplerColor, uv);
+    vec4 texture_color = texture(samplerColor[pc.imgIdx], uv);
     uFragColor = texture_color;
-//    uFragColor = vec4(uv, 0.0, 1.0);
+//    uFragColor = vec4(float(pc.imgIdx), 0.0, 0.0, 1.0);
 }

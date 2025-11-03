@@ -30,42 +30,34 @@ fn update(
 ) {
     scene.objects[2].model.rot =
         cgmath::Quaternion::from_angle_z(cgmath::Deg(runtime_data.frames as f32 * 0.1));
-    scene.objects[1].model.disp = cgmath::Vector3{x: runtime_data.frames as f32 * 0.001, y: 0.0, z: 0.0};
+    scene.objects[1].model.disp = cgmath::Vector3 {
+        x: runtime_data.frames as f32 * 0.001,
+        y: 0.0,
+        z: 0.0,
+    };
     if controller.is_hold(KeyActions::FORWARD as usize) {
         scene.camera.move_offset(&cgmath::vec3(0.0, 0.0, 0.004));
-        println!(
-            "camera.position={:?}", scene.camera.position()
-        );
+        println!("camera.position={:?}", scene.camera.position());
     }
     if controller.is_hold(KeyActions::BACKWARD as usize) {
         scene.camera.move_offset(&cgmath::vec3(0.0, 0.0, -0.004));
-        println!(
-            "camera.position={:?}", scene.camera.position()
-        );
+        println!("camera.position={:?}", scene.camera.position());
     }
     if controller.is_hold(KeyActions::RIGHT as usize) {
         scene.camera.move_offset(&cgmath::vec3(-0.004, 0.0, 0.0));
-        println!(
-            "camera.position={:?}", scene.camera.position()
-        );
+        println!("camera.position={:?}", scene.camera.position());
     }
     if controller.is_hold(KeyActions::LEFT as usize) {
         scene.camera.move_offset(&cgmath::vec3(0.004, 0.0, 0.0));
-        println!(
-            "camera.position={:?}", scene.camera.position()
-        );
+        println!("camera.position={:?}", scene.camera.position());
     }
     if controller.is_hold(KeyActions::UP as usize) {
         scene.camera.move_offset(&cgmath::vec3(0.0, 0.008, 0.0));
-        println!(
-            "camera.position={:?}", scene.camera.position()
-        );
+        println!("camera.position={:?}", scene.camera.position());
     }
     if controller.is_hold(KeyActions::DOWN as usize) {
         scene.camera.move_offset(&cgmath::vec3(0.0, -0.008, 0.0));
-        println!(
-            "camera.position={:?}", scene.camera.position()
-        );
+        println!("camera.position={:?}", scene.camera.position());
     }
     if controller.is_hold(KeyActions::OrientCamera as usize) {
         let direction = controller.mouse_direction(runtime_data.frames);
@@ -264,9 +256,9 @@ fn main() {
         camera,
         lines,
         vec![demo, demo2, demo3],
-        vec![rectangle_mesh, rectangle_mesh2],//, line_mesh],
+        vec![rectangle_mesh, rectangle_mesh2], //, line_mesh],
         vec![charlie, potoo],
-        vec![object_shader_set],//, line_shader_set],
+        vec![object_shader_set], //, line_shader_set],
     );
     let scene_handle = engine_builder.register_scene(start_scene);
     engine_builder.start(scene_handle);

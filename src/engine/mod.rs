@@ -545,6 +545,16 @@ impl Engine {
                         );
                         device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
                         device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
+                        let sampler_index = *object.material.sampler_index.borrow() as u32;
+                        let sampler_bytes = sampler_index.to_le_bytes();
+
+                        device.cmd_push_constants(
+                            draw_command_buffer,
+                            pipeline.pipeline_layouts[&object.shader_set],
+                            vk::ShaderStageFlags::FRAGMENT,
+                            0,
+                            &sampler_bytes,
+                        );
 
                         object.mesh.bind_buffers(self, current_frame);
                         device.cmd_bind_descriptor_sets(
@@ -584,11 +594,6 @@ impl Engine {
                             view: scene.camera.view_matrix(),
                             projection: cgmath::Matrix4::from(scene.camera.projection),
                         };
-                        // pipeline.update_uniforms(
-                        //     line.shader_set.clone(),
-                        //     mvp,
-                        //     current_frame * scene.lines.len() + line_index,
-                        // );
 
                         line.mesh.bind_buffers(self, current_frame);
                         device.cmd_bind_descriptor_sets(
