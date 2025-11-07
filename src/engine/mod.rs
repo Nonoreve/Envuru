@@ -512,6 +512,18 @@ impl Engine {
                     mvps_per_shaderset.insert(object.shader_set.clone(), vec![mvp]);
                 }
             }
+            for line in scene.lines.iter() {
+                let mvp = MvpUbo {
+                    model: cgmath::Matrix4::from(line.model),
+                    view: scene.camera.view_matrix(),
+                    projection: cgmath::Matrix4::from(scene.camera.projection),
+                };
+                if let Some(mvps) = mvps_per_shaderset.get_mut(&line.shader_set) {
+                    mvps.push(mvp);
+                } else {
+                    mvps_per_shaderset.insert(line.shader_set.clone(), vec![mvp]);
+                }
+            }
             for (shader_set, mvps) in mvps_per_shaderset {
                 pipeline.update_uniforms(shader_set.clone(), mvps, current_frame);
             }
@@ -589,11 +601,16 @@ impl Engine {
                         );
                         device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
                         device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
-                        let mvp = MvpUbo {
-                            model: cgmath::Matrix4::from(line.model),
-                            view: scene.camera.view_matrix(),
-                            projection: cgmath::Matrix4::from(scene.camera.projection),
-                        };
+                        let sampler_index: u32 = 0;
+                        let sampler_bytes = sampler_index.to_le_bytes();
+
+                        device.cmd_push_constants(
+                            draw_command_buffer,
+                            pipeline.pipeline_layouts[&line.shader_set],
+                            vk::ShaderStageFlags::FRAGMENT,
+                            0,
+                            &sampler_bytes,
+                        );
 
                         line.mesh.bind_buffers(self, current_frame);
                         device.cmd_bind_descriptor_sets(
@@ -602,7 +619,7 @@ impl Engine {
                             pipeline.pipeline_layouts[&line.shader_set],
                             0,
                             &[pipeline.descriptors_sets[&line.shader_set]],
-                            &[],
+                            &[(line_index * size_of::<MvpUbo>()) as u32],
                         );
                         device.cmd_set_line_width(draw_command_buffer, line.width);
                         device.cmd_draw_indexed(

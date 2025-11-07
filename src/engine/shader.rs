@@ -1,5 +1,4 @@
 use ash::vk;
-use std::iter;
 use std::mem;
 use std::mem::ManuallyDrop;
 use std::rc::Rc;

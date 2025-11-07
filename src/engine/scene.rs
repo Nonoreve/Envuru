@@ -370,15 +370,7 @@ impl Scene {
                     .device
                     .allocate_descriptor_sets(desc_alloc_infos.get(shader_set).unwrap())
                     .unwrap();
-                let (vertex_shader, input_attribute_descriptions, input_binding_descriptions) =
-                    VertexShader::new(
-                        engine,
-                        &shader_set.vertex_spv.borrow(),
-                        &descriptor_sets[0],
-                        &shader_set.vertex_descriptors,
-                        DataOrganization::ObjectMajor,
-                        self.objects.len() as u64,
-                    );
+
                 let fragment_shader = FragmentShader::new(
                     engine,
                     &shader_set.fragment_spv.borrow(),
@@ -386,32 +378,57 @@ impl Scene {
                     &descriptor_sets,
                     &shader_set.fragment_descriptors,
                 );
-                shader_set.vertex_spv.borrow_mut().clear();
-                shader_set.fragment_spv.borrow_mut().clear();
                 let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo {
                     topology: *topology,
                     ..Default::default()
                 };
-                let rasterization_info = match *topology {
-                    vk::PrimitiveTopology::LINE_LIST => vk::PipelineRasterizationStateCreateInfo {
-                        front_face: vk::FrontFace::COUNTER_CLOCKWISE,
-                        line_width: 10.0,
-                        polygon_mode: vk::PolygonMode::LINE,
-                        ..Default::default()
-                    },
-                    vk::PrimitiveTopology::POINT_LIST => vk::PipelineRasterizationStateCreateInfo {
-                        front_face: vk::FrontFace::COUNTER_CLOCKWISE,
-                        line_width: 2.0,
-                        polygon_mode: vk::PolygonMode::POINT,
-                        ..Default::default()
-                    },
-                    _ => vk::PipelineRasterizationStateCreateInfo {
-                        front_face: vk::FrontFace::COUNTER_CLOCKWISE,
-                        line_width: 1.0,
-                        polygon_mode: vk::PolygonMode::FILL,
-                        ..Default::default()
-                    },
+                let rasterization_info;
+                let (vertex_shader, input_attribute_descriptions, input_binding_descriptions);
+                match *topology {
+                    vk::PrimitiveTopology::LINE_LIST => {
+                        (
+                            vertex_shader,
+                            input_attribute_descriptions,
+                            input_binding_descriptions,
+                        ) = VertexShader::new(
+                            engine,
+                            &shader_set.vertex_spv.borrow(),
+                            &descriptor_sets[0],
+                            &shader_set.vertex_descriptors,
+                            DataOrganization::ObjectMajor,
+                            self.lines.len() as u64,
+                        );
+                        rasterization_info = vk::PipelineRasterizationStateCreateInfo {
+                            front_face: vk::FrontFace::COUNTER_CLOCKWISE,
+                            line_width: 10.0,
+                            polygon_mode: vk::PolygonMode::LINE,
+                            ..Default::default()
+                        };
+                    }
+                    vk::PrimitiveTopology::TRIANGLE_LIST => {
+                        (
+                            vertex_shader,
+                            input_attribute_descriptions,
+                            input_binding_descriptions,
+                        ) = VertexShader::new(
+                            engine,
+                            &shader_set.vertex_spv.borrow(),
+                            &descriptor_sets[0],
+                            &shader_set.vertex_descriptors,
+                            DataOrganization::ObjectMajor,
+                            self.objects.len() as u64,
+                        );
+                        rasterization_info = vk::PipelineRasterizationStateCreateInfo {
+                            front_face: vk::FrontFace::COUNTER_CLOCKWISE,
+                            line_width: 2.0,
+                            polygon_mode: vk::PolygonMode::FILL,
+                            ..Default::default()
+                        }
+                    }
+                    _ => unimplemented!(),
                 };
+                shader_set.vertex_spv.borrow_mut().clear();
+                shader_set.fragment_spv.borrow_mut().clear();
                 result.insert(
                     shader_set.clone(),
                     (

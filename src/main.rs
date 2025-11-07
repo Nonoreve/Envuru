@@ -240,25 +240,25 @@ fn main() {
     let line_mesh = Rc::new(Mesh::new(line_vertices.into(), line_indices.into()));
     let mut lines = Vec::new();
     let scale = 100.0;
-    // for i in 0..20 {
-    //     lines.push(Line {
-    //         mesh: Rc::clone(&line_mesh),
-    //         model: cgmath::Decomposed {
-    //             scale,
-    //             rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(0.01)),
-    //             disp: cgmath::vec3(0.0, -scale / 2.0, (-i as f32) * 2.0),
-    //         },
-    //         width: 4.0,
-    //         shader_set: Rc::clone(&line_shader_set),
-    //     })
-    // }
+    for i in 0..20 {
+        lines.push(Line {
+            mesh: Rc::clone(&line_mesh),
+            model: cgmath::Decomposed {
+                scale,
+                rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(0.01)),
+                disp: cgmath::vec3(0.0, -scale / 2.0, (-i as f32) * 2.0),
+            },
+            width: 4.0,
+            shader_set: Rc::clone(&line_shader_set),
+        })
+    }
     let start_scene = Scene::new(
         camera,
         lines,
         vec![demo, demo2, demo3],
-        vec![rectangle_mesh, rectangle_mesh2], //, line_mesh],
+        vec![rectangle_mesh, rectangle_mesh2, line_mesh],
         vec![charlie, potoo],
-        vec![object_shader_set], //, line_shader_set],
+        vec![object_shader_set, line_shader_set],
     );
     let scene_handle = engine_builder.register_scene(start_scene);
     engine_builder.start(scene_handle);
