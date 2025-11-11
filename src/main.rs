@@ -1,5 +1,5 @@
+#![allow(unused)]
 use std::rc::Rc;
-
 use cgmath::Rotation3;
 use winit::{event, keyboard};
 
@@ -13,12 +13,12 @@ use crate::engine::scene::{Camera, Line, Material, Mesh, Object, Scene, ShaderSe
 mod engine;
 
 enum KeyActions {
-    FORWARD,
-    BACKWARD,
-    RIGHT,
-    LEFT,
-    UP,
-    DOWN,
+    Forward,
+    Backward,
+    Right,
+    Left,
+    Up,
+    Down,
     OrientCamera,
 }
 
@@ -35,34 +35,34 @@ fn update(
         y: 0.0,
         z: 0.0,
     };
-    if controller.is_hold(KeyActions::FORWARD as usize) {
+    if controller.is_hold(KeyActions::Forward as usize) {
         scene.camera.move_offset(&cgmath::vec3(0.0, 0.0, 0.004));
         println!("camera.position={:?}", scene.camera.position());
     }
-    if controller.is_hold(KeyActions::BACKWARD as usize) {
+    if controller.is_hold(KeyActions::Backward as usize) {
         scene.camera.move_offset(&cgmath::vec3(0.0, 0.0, -0.004));
         println!("camera.position={:?}", scene.camera.position());
     }
-    if controller.is_hold(KeyActions::RIGHT as usize) {
+    if controller.is_hold(KeyActions::Right as usize) {
         scene.camera.move_offset(&cgmath::vec3(-0.004, 0.0, 0.0));
         println!("camera.position={:?}", scene.camera.position());
     }
-    if controller.is_hold(KeyActions::LEFT as usize) {
+    if controller.is_hold(KeyActions::Left as usize) {
         scene.camera.move_offset(&cgmath::vec3(0.004, 0.0, 0.0));
         println!("camera.position={:?}", scene.camera.position());
     }
-    if controller.is_hold(KeyActions::UP as usize) {
+    if controller.is_hold(KeyActions::Up as usize) {
         scene.camera.move_offset(&cgmath::vec3(0.0, 0.008, 0.0));
         println!("camera.position={:?}", scene.camera.position());
     }
-    if controller.is_hold(KeyActions::DOWN as usize) {
+    if controller.is_hold(KeyActions::Down as usize) {
         scene.camera.move_offset(&cgmath::vec3(0.0, -0.008, 0.0));
         println!("camera.position={:?}", scene.camera.position());
     }
     if controller.is_hold(KeyActions::OrientCamera as usize) {
         let direction = controller.mouse_direction(runtime_data.frames);
         scene.camera.rotate(cgmath::vec3(
-            direction.y as f32 * 0.0008,
+            direction.y as f32 * -0.0008,
             direction.x as f32 * -0.0008,
             0.0,
         ));
@@ -78,37 +78,37 @@ fn main() {
     let height = 42 * 15;
     let mut controller = Controller::new(width as f64, height as f64);
     controller.register_bind_action(
-        KeyActions::FORWARD as usize,
+        KeyActions::Forward as usize,
         KeyBind::new(MouseOrKey::Key(keyboard::PhysicalKey::Code(
             keyboard::KeyCode::KeyQ,
         ))),
     );
     controller.register_bind_action(
-        KeyActions::BACKWARD as usize,
+        KeyActions::Backward as usize,
         KeyBind::new(MouseOrKey::Key(keyboard::PhysicalKey::Code(
             keyboard::KeyCode::KeyW,
         ))),
     );
     controller.register_bind_action(
-        KeyActions::RIGHT as usize,
+        KeyActions::Right as usize,
         KeyBind::new(MouseOrKey::Key(keyboard::PhysicalKey::Code(
             keyboard::KeyCode::KeyD,
         ))),
     );
     controller.register_bind_action(
-        KeyActions::LEFT as usize,
+        KeyActions::Left as usize,
         KeyBind::new(MouseOrKey::Key(keyboard::PhysicalKey::Code(
             keyboard::KeyCode::Tab,
         ))),
     );
     controller.register_bind_action(
-        KeyActions::UP as usize,
+        KeyActions::Up as usize,
         KeyBind::new(MouseOrKey::Key(keyboard::PhysicalKey::Code(
             keyboard::KeyCode::Space,
         ))),
     );
     controller.register_bind_action(
-        KeyActions::DOWN as usize,
+        KeyActions::Down as usize,
         KeyBind::new(MouseOrKey::Key(keyboard::PhysicalKey::Code(
             keyboard::KeyCode::ShiftLeft,
         ))),

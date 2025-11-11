@@ -3,6 +3,12 @@ use ash::khr::{surface, swapchain};
 use ash::vk;
 use winit::dpi;
 
+pub struct SurfaceData {
+    pub surface_capabilities: vk::SurfaceCapabilitiesKHR,
+    pub surface_loader: surface::Instance,
+    pub surface_format: vk::SurfaceFormatKHR,
+}
+
 pub(crate) struct Swapchain {
     swapchain_loader: swapchain::Device,
     swapchain: vk::SwapchainKHR,
@@ -12,38 +18,38 @@ pub(crate) struct Swapchain {
 
 impl Swapchain {
     pub fn new(
-        surface_capabilities: &vk::SurfaceCapabilitiesKHR,
-        surface_loader: &surface::Instance,
-        pdevice: vk::PhysicalDevice,
         surface: vk::SurfaceKHR,
+        surface_data: &SurfaceData,
+        pdevice: vk::PhysicalDevice,
         instance: &ash::Instance,
         device: &ash::Device,
-        surface_format: &vk::SurfaceFormatKHR,
         dimensions: &dpi::PhysicalSize<u32>,
     ) -> Self {
-        let surface_resolution = match surface_capabilities.current_extent.width {
+        let surface_resolution = match surface_data.surface_capabilities.current_extent.width {
             u32::MAX => vk::Extent2D {
                 width: dimensions.width,
                 height: dimensions.height,
             },
-            _ => surface_capabilities.current_extent,
+            _ => surface_data.surface_capabilities.current_extent,
         };
-        let mut desired_image_count = surface_capabilities.min_image_count + 1;
-        if surface_capabilities.max_image_count > 0
-            && desired_image_count > surface_capabilities.max_image_count
+        let mut desired_image_count = surface_data.surface_capabilities.min_image_count + 1;
+        if surface_data.surface_capabilities.max_image_count > 0
+            && desired_image_count > surface_data.surface_capabilities.max_image_count
         {
-            desired_image_count = surface_capabilities.max_image_count;
+            desired_image_count = surface_data.surface_capabilities.max_image_count;
         }
-        let pre_transform = if surface_capabilities
+        let pre_transform = if surface_data
+            .surface_capabilities
             .supported_transforms
             .contains(vk::SurfaceTransformFlagsKHR::IDENTITY)
         {
             vk::SurfaceTransformFlagsKHR::IDENTITY
         } else {
-            surface_capabilities.current_transform
+            surface_data.surface_capabilities.current_transform
         };
         unsafe {
-            let present_modes = surface_loader
+            let present_modes = surface_data
+                .surface_loader
                 .get_physical_device_surface_present_modes(pdevice, surface)
                 .unwrap();
             let present_mode = present_modes
@@ -56,8 +62,8 @@ impl Swapchain {
                 flags: vk::SwapchainCreateFlagsKHR::DEFERRED_MEMORY_ALLOCATION_EXT,
                 surface,
                 min_image_count: desired_image_count,
-                image_format: surface_format.format,
-                image_color_space: surface_format.color_space,
+                image_format: surface_data.surface_format.format,
+                image_color_space: surface_data.surface_format.color_space,
                 image_extent: surface_resolution,
                 image_array_layers: 1,
                 image_usage: vk::ImageUsageFlags::COLOR_ATTACHMENT,
@@ -79,7 +85,7 @@ impl Swapchain {
                         flags: Default::default(), // TODO https://registry.khronos.org/vulkan/specs/latest/man/html/VK_EXT_fragment_density_map.html
                         image,
                         view_type: vk::ImageViewType::TYPE_2D,
-                        format: surface_format.format,
+                        format: surface_data.surface_format.format,
                         components: crate::engine::DIRECT_MAPPING,
                         subresource_range: vk::ImageSubresourceRange {
                             aspect_mask: vk::ImageAspectFlags::COLOR,

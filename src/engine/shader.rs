@@ -18,6 +18,16 @@ macro_rules! offset_of {
     }};
 }
 
+pub trait Shader {
+    fn delete(&mut self, engine: &Engine);
+    fn get_uniform_data(&self, index: usize) -> Option<&UniformBuffer>;
+}
+
+pub struct VertexInputs {
+    pub input_attribute_desc: Vec<vk::VertexInputAttributeDescription>,
+    pub input_binding_desc: Vec<vk::VertexInputBindingDescription>,
+}
+
 #[derive(Debug)]
 pub struct VertexShader {
     pub module: vk::ShaderModule,
@@ -32,11 +42,7 @@ impl VertexShader {
         vertex_descriptors: &[vk::DescriptorType],
         _style: DataOrganization, // TODO DataOrganization
         users: u64,
-    ) -> (
-        VertexShader,
-        Vec<vk::VertexInputAttributeDescription>,
-        Vec<vk::VertexInputBindingDescription>,
-    ) {
+    ) -> (VertexShader, VertexInputs) {
         let vertex_shader_info = vk::ShaderModuleCreateInfo::default().code(spv_data);
         let input_binding_descriptions = vec![vk::VertexInputBindingDescription {
             binding: 0,
@@ -97,19 +103,27 @@ impl VertexShader {
                     module,
                     uniform_mvp_buffers,
                 },
-                input_attribute_descriptions,
-                input_binding_descriptions,
+                VertexInputs {
+                    input_attribute_desc: input_attribute_descriptions,
+                    input_binding_desc: input_binding_descriptions,
+                },
             )
         }
     }
+}
 
-    pub fn delete(&self, engine: &Engine) {
+impl Shader for VertexShader {
+    fn delete(&mut self, engine: &Engine) {
         unsafe {
             engine.device.destroy_shader_module(self.module, None);
             for uniform_mvp_buffer in self.uniform_mvp_buffers.iter() {
                 uniform_mvp_buffer.delete(engine);
             }
         }
+    }
+
+    fn get_uniform_data(&self, index: usize) -> Option<&UniformBuffer>{
+        Some(&self.uniform_mvp_buffers[index])
     }
 }
 
@@ -148,12 +162,13 @@ impl FragmentShader {
         };
 
         unsafe {
-            let samplers: Vec<vk::Sampler> = std::iter::repeat_n(
-                engine.device.create_sampler(&sampler_info, None).unwrap(),
-                materials.len(),
-            )
-            .collect();
+            let samplers: Vec<vk::Sampler>;
             if descriptor_types.contains(&vk::DescriptorType::COMBINED_IMAGE_SAMPLER) {
+                samplers = std::iter::repeat_n(
+                    engine.device.create_sampler(&sampler_info, None).unwrap(),
+                    materials.len(),
+                )
+                .collect();
                 let image_infos: Vec<vk::DescriptorImageInfo> = materials
                     .iter()
                     .enumerate()
@@ -171,6 +186,8 @@ impl FragmentShader {
                     }];
                     engine.device.update_descriptor_sets(&write_desc_sets, &[]);
                 }
+            } else {
+                samplers = Vec::new()
             }
             let frag_shader_info = vk::ShaderModuleCreateInfo::default().code(spv_data);
             let fragment_shader_module = engine
@@ -183,8 +200,10 @@ impl FragmentShader {
             }
         }
     }
+}
 
-    pub fn delete(&mut self, engine: &Engine) {
+impl Shader for FragmentShader {
+    fn delete(&mut self, engine: &Engine) {
         unsafe {
             engine.device.destroy_shader_module(self.module, None);
             let samplers = ManuallyDrop::take(&mut self.samplers);
@@ -192,5 +211,9 @@ impl FragmentShader {
                 engine.device.destroy_sampler(sampler, None);
             }
         }
+    }
+
+    fn get_uniform_data(&self, _index: usize) -> Option<&UniformBuffer>{
+        None
     }
 }

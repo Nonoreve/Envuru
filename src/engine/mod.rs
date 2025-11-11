@@ -1,4 +1,5 @@
 #![allow(clippy::mutable_key_type)]
+use crate::engine::swapchain::SurfaceData;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::{borrow, ffi, mem, process, sync};
@@ -247,14 +248,13 @@ unsafe extern "system" fn vulkan_debug_callback(
 pub struct Engine {
     instance: ash::Instance,
     pub device: ash::Device,
-    pub surface_loader: surface::Instance,
+    pub surface_data: SurfaceData,
     debug_utils_loader: debug_utils::Instance,
     window: mem::ManuallyDrop<window::Window>,
     debug_call_back: vk::DebugUtilsMessengerEXT,
     device_memory_properties: vk::PhysicalDeviceMemoryProperties,
     pub present_queue: vk::Queue,
     surface: vk::SurfaceKHR,
-    surface_format: vk::SurfaceFormatKHR,
     swapchain: Swapchain,
     pool: vk::CommandPool,
     pub draw_command_buffers: Vec<vk::CommandBuffer>,
@@ -264,7 +264,6 @@ pub struct Engine {
     pub rendering_complete_semaphores: Vec<vk::Semaphore>,
     pub draw_commands_reuse_fence: Vec<vk::Fence>,
     setup_commands_reuse_fence: vk::Fence,
-    surface_capabilities: vk::SurfaceCapabilitiesKHR,
     pdevice: vk::PhysicalDevice,
     // pub limits: vk::PhysicalDeviceLimits,
 }
@@ -382,14 +381,17 @@ impl Engine {
             let surface_capabilities = surface_loader
                 .get_physical_device_surface_capabilities(pdevice, surface)
                 .unwrap();
+            let surface_data = SurfaceData {
+                surface_capabilities,
+                surface_loader,
+                surface_format,
+            };
             let swapchain = Swapchain::new(
-                &surface_capabilities,
-                &surface_loader,
-                pdevice,
                 surface,
+                &surface_data,
+                pdevice,
                 &instance,
                 &device,
-                &surface_format,
                 &window.inner_size(),
             );
             let create_info = vk::CommandPoolCreateInfo {
@@ -443,8 +445,7 @@ impl Engine {
                 pdevice,
                 device_memory_properties,
                 window: mem::ManuallyDrop::new(window),
-                surface_loader,
-                surface_format,
+                surface_data,
                 present_queue,
                 swapchain,
                 pool,
@@ -456,7 +457,6 @@ impl Engine {
                 draw_commands_reuse_fence,
                 setup_commands_reuse_fence,
                 surface,
-                surface_capabilities,
                 debug_call_back,
                 debug_utils_loader,
                 // limits,
@@ -644,18 +644,16 @@ impl Engine {
             self.device.device_wait_idle().unwrap();
             self.swapchain.delete(&self.device);
             pipeline.delete_framebuffers(self);
-            self.surface_capabilities = self
-                .surface_loader
+            self.surface_data.surface_capabilities = 
+                self.surface_data.surface_loader
                 .get_physical_device_surface_capabilities(self.pdevice, self.surface)
                 .unwrap();
             self.swapchain = Swapchain::new(
-                &self.surface_capabilities,
-                &self.surface_loader,
-                self.pdevice,
                 self.surface,
+                &self.surface_data,
+                self.pdevice,
                 &self.instance,
                 &self.device,
-                &self.surface_format,
                 &self.window.inner_size(),
             );
             self.depth_image.delete(self);
@@ -761,7 +759,7 @@ impl Drop for Engine {
             self.swapchain.delete(&self.device);
             self.device.destroy_command_pool(self.pool, None);
             self.device.destroy_device(None);
-            self.surface_loader.destroy_surface(self.surface, None);
+            self.surface_data.surface_loader.destroy_surface(self.surface, None);
             self.debug_utils_loader
                 .destroy_debug_utils_messenger(self.debug_call_back, None);
             self.instance.destroy_instance(None);

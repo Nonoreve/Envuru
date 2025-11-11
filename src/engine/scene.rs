@@ -1,7 +1,9 @@
 #![allow(clippy::mutable_key_type)]
+use crate::engine::shader::Shader;
 use std::cell::{OnceCell, RefCell};
 use std::collections::HashMap;
 use std::f32::consts::PI;
+use std::ffi::CStr;
 use std::hash::{Hash, Hasher};
 use std::io::Cursor;
 use std::rc::Rc;
@@ -11,10 +13,11 @@ use ash::{util, vk};
 use cgmath::{Angle, Rotation3};
 
 use crate::engine::memory::{DataOrganization, IndexBuffer, Texture, VertexBuffer};
-use crate::engine::shader::{FragmentShader, VertexShader};
+use crate::engine::shader::{FragmentShader, VertexInputs, VertexShader};
 use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT, ShaderInterface};
 
 const RIGHT_ANGLE: f32 = PI / 2.0;
+const SHADER_ENTRY_NAME: &CStr = c"main";
 
 pub struct Camera {
     position: cgmath::Point3<f32>,
@@ -347,13 +350,12 @@ impl Scene {
     ) -> HashMap<
         Rc<ShaderSet>,
         (
-            VertexShader,
-            Vec<vk::VertexInputAttributeDescription>,
-            Vec<vk::VertexInputBindingDescription>,
-            FragmentShader,
+            Vec<Box<dyn Shader>>,
+            VertexInputs,
             vk::DescriptorSet,
-            vk::PipelineInputAssemblyStateCreateInfo,
-            vk::PipelineRasterizationStateCreateInfo,
+            vk::PipelineInputAssemblyStateCreateInfo<'_>,
+            vk::PipelineRasterizationStateCreateInfo<'_>,
+            Vec<vk::PipelineShaderStageCreateInfo<'_>>,
         ),
     > {
         for mesh in self.meshes.iter() {
@@ -374,7 +376,7 @@ impl Scene {
                 let fragment_shader = FragmentShader::new(
                     engine,
                     &shader_set.fragment_spv.borrow(),
-                    &self.materials,
+                    &self.materials, // TODO only send materials used by objects with this shader set
                     &descriptor_sets,
                     &shader_set.fragment_descriptors,
                 );
@@ -383,14 +385,10 @@ impl Scene {
                     ..Default::default()
                 };
                 let rasterization_info;
-                let (vertex_shader, input_attribute_descriptions, input_binding_descriptions);
+                let (vertex_shader, vertex_inputs);
                 match *topology {
                     vk::PrimitiveTopology::LINE_LIST => {
-                        (
-                            vertex_shader,
-                            input_attribute_descriptions,
-                            input_binding_descriptions,
-                        ) = VertexShader::new(
+                        (vertex_shader, vertex_inputs) = VertexShader::new(
                             engine,
                             &shader_set.vertex_spv.borrow(),
                             &descriptor_sets[0],
@@ -406,11 +404,7 @@ impl Scene {
                         };
                     }
                     vk::PrimitiveTopology::TRIANGLE_LIST => {
-                        (
-                            vertex_shader,
-                            input_attribute_descriptions,
-                            input_binding_descriptions,
-                        ) = VertexShader::new(
+                        (vertex_shader, vertex_inputs) = VertexShader::new(
                             engine,
                             &shader_set.vertex_spv.borrow(),
                             &descriptor_sets[0],
@@ -427,18 +421,36 @@ impl Scene {
                     }
                     _ => unimplemented!(),
                 };
+
+                let shader_stage_create_infos = vec![
+                    vk::PipelineShaderStageCreateInfo {
+                        s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
+                        module: vertex_shader.module,
+                        p_name: SHADER_ENTRY_NAME.as_ptr(),
+                        stage: vk::ShaderStageFlags::VERTEX,
+                        ..Default::default()
+                    },
+                    vk::PipelineShaderStageCreateInfo {
+                        s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
+                        module: fragment_shader.module,
+                        p_name: SHADER_ENTRY_NAME.as_ptr(),
+                        stage: vk::ShaderStageFlags::FRAGMENT,
+                        ..Default::default()
+                    },
+                ];
                 shader_set.vertex_spv.borrow_mut().clear();
                 shader_set.fragment_spv.borrow_mut().clear();
+                let shaders: Vec<Box<dyn Shader>> =
+                    vec![Box::new(vertex_shader), Box::new(fragment_shader)];
                 result.insert(
                     shader_set.clone(),
                     (
-                        vertex_shader,
-                        input_attribute_descriptions,
-                        input_binding_descriptions,
-                        fragment_shader,
+                        shaders,
+                        vertex_inputs,
                         descriptor_sets[0],
                         vertex_input_assembly_state_info,
                         rasterization_info,
+                        shader_stage_create_infos,
                     ),
                 );
             }
@@ -492,7 +504,7 @@ impl Scene {
         });
         let descriptor_pool_info = vk::DescriptorPoolCreateInfo::default()
             .pool_sizes(&descriptor_sizes)
-            .max_sets(descriptor_sizes.len() as u32);
+            .max_sets(self.shader_sets.len() as u32);
         unsafe {
             engine
                 .device
