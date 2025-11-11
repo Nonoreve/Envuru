@@ -35,6 +35,12 @@ pub enum ShaderInterface {
     CombinedImageSampler,
 }
 
+pub enum MeshTopology {
+    Triangles,
+    Lines,
+    Points
+}
+
 pub struct EngineBuilder {
     event_loop: event_loop::EventLoop<()>,
     window_handler: WindowHandler,
@@ -363,6 +369,7 @@ impl Engine {
                 sampler_anisotropy: vk::TRUE,
                 fill_mode_non_solid: vk::TRUE,
                 wide_lines: vk::TRUE,
+                geometry_shader: vk::TRUE,
                 ..Default::default()
             };
             let priorities = [1.0];
@@ -500,7 +507,7 @@ impl Engine {
 
             let mut mvps_per_shaderset: HashMap<Rc<ShaderSet>, Vec<MvpUbo>> = HashMap::new();
 
-            for object in scene.objects.iter() {
+            for (i, object) in scene.objects.iter().enumerate() {
                 let mvp = MvpUbo {
                     model: cgmath::Matrix4::from(object.model),
                     view: scene.camera.view_matrix(),
@@ -569,13 +576,14 @@ impl Engine {
                         );
 
                         object.mesh.bind_buffers(self, current_frame);
+
                         device.cmd_bind_descriptor_sets(
                             draw_command_buffer,
                             vk::PipelineBindPoint::GRAPHICS,
                             pipeline.pipeline_layouts[&object.shader_set],
                             0,
                             &[pipeline.descriptors_sets[&object.shader_set]],
-                            &[(obj_index * size_of::<MvpUbo>()) as u32],
+                            &[object.shader_set.get_dynamic_offset(obj_index)],
                         );
                         device.cmd_draw_indexed(
                             draw_command_buffer,
@@ -619,7 +627,7 @@ impl Engine {
                             pipeline.pipeline_layouts[&line.shader_set],
                             0,
                             &[pipeline.descriptors_sets[&line.shader_set]],
-                            &[(line_index * size_of::<MvpUbo>()) as u32],
+                            &[line.shader_set.get_dynamic_offset(line_index)],
                         );
                         device.cmd_set_line_width(draw_command_buffer, line.width);
                         device.cmd_draw_indexed(
@@ -644,8 +652,9 @@ impl Engine {
             self.device.device_wait_idle().unwrap();
             self.swapchain.delete(&self.device);
             pipeline.delete_framebuffers(self);
-            self.surface_data.surface_capabilities = 
-                self.surface_data.surface_loader
+            self.surface_data.surface_capabilities = self
+                .surface_data
+                .surface_loader
                 .get_physical_device_surface_capabilities(self.pdevice, self.surface)
                 .unwrap();
             self.swapchain = Swapchain::new(
@@ -759,7 +768,9 @@ impl Drop for Engine {
             self.swapchain.delete(&self.device);
             self.device.destroy_command_pool(self.pool, None);
             self.device.destroy_device(None);
-            self.surface_data.surface_loader.destroy_surface(self.surface, None);
+            self.surface_data
+                .surface_loader
+                .destroy_surface(self.surface, None);
             self.debug_utils_loader
                 .destroy_debug_utils_messenger(self.debug_call_back, None);
             self.instance.destroy_instance(None);

@@ -128,6 +128,36 @@ impl Shader for VertexShader {
 }
 
 #[derive(Debug)]
+pub struct GeometryShader {
+    pub module: vk::ShaderModule,
+}
+
+impl GeometryShader {
+    pub fn new(
+        engine: &Engine,
+        spv_data: &[u32],
+    ) -> GeometryShader {
+        let geometry_shader_info = vk::ShaderModuleCreateInfo::default().code(spv_data);
+
+        unsafe {
+            let module = engine
+                .device
+                .create_shader_module(&geometry_shader_info, None)
+                .unwrap();
+            Self {
+                module,
+            }
+        }
+    }
+
+    pub fn delete(&self, engine: &Engine) {
+        unsafe {
+            engine.device.destroy_shader_module(self.module, None);
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct FragmentShader {
     pub module: vk::ShaderModule,
     samplers: ManuallyDrop<Vec<vk::Sampler>>,

@@ -13,8 +13,8 @@ use ash::{util, vk};
 use cgmath::{Angle, Rotation3};
 
 use crate::engine::memory::{DataOrganization, IndexBuffer, Texture, VertexBuffer};
-use crate::engine::shader::{FragmentShader, VertexInputs, VertexShader};
-use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT, ShaderInterface};
+use crate::engine::shader::{FragmentShader, GeometryShader, VertexInputs, VertexShader};
+use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT, MeshTopology, ShaderInterface};
 
 const RIGHT_ANGLE: f32 = PI / 2.0;
 const SHADER_ENTRY_NAME: &CStr = c"main";
@@ -197,10 +197,11 @@ pub struct Line {
 pub struct ShaderSet {
     vertex_spv: RefCell<Vec<u32>>,
     fragment_spv: RefCell<Vec<u32>>,
-    topology: OnceCell<vk::PrimitiveTopology>,
+    pub topology: vk::PrimitiveTopology,
     index: OnceCell<usize>,
     vertex_descriptors: Vec<vk::DescriptorType>,
     fragment_descriptors: Vec<vk::DescriptorType>,
+    dynamic_offset_size: usize,
 }
 
 impl ShaderSet {
@@ -209,6 +210,7 @@ impl ShaderSet {
         vertex_shader_interface: Vec<ShaderInterface>,
         fragment_shader_bytes: &[u8],
         fragment_shader_interface: Vec<ShaderInterface>,
+        topology: MeshTopology,
     ) -> Self {
         // TODO support on-the-fly shader compil and read shader contents to fill descriptors
         let mut spv_data = Cursor::new(vertex_shader_bytes);
@@ -229,13 +231,20 @@ impl ShaderSet {
                 ShaderInterface::CombinedImageSampler => vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
             })
             .collect();
+        let (dynamic_offset_size, vk_topology) = match topology {
+            MeshTopology::Triangles => (size_of::<MvpUbo>(), vk::PrimitiveTopology::TRIANGLE_LIST),
+            MeshTopology::Lines => (size_of::<MvpUbo>(), vk::PrimitiveTopology::LINE_LIST),
+            MeshTopology::Points => (0, vk::PrimitiveTopology::POINT_LIST),
+            _ => unimplemented!(),
+        };
         Self {
             vertex_spv,
             fragment_spv,
-            topology: OnceCell::new(),
+            topology: vk_topology,
             index: OnceCell::new(),
             vertex_descriptors,
             fragment_descriptors,
+            dynamic_offset_size,
         }
     }
 
@@ -273,8 +282,8 @@ impl ShaderSet {
         }
     }
 
-    pub fn get_index(&self) -> usize {
-        *self.index.get().unwrap()
+    pub fn get_dynamic_offset(&self, index: usize) -> u32 {
+        (self.dynamic_offset_size * index) as u32
     }
 }
 
@@ -297,40 +306,15 @@ pub struct Scene {
 impl Scene {
     pub fn new(
         camera: Camera,
-        mut lines: Vec<Line>,
-        mut objects: Vec<Object>,
+        lines: Vec<Line>,
+        objects: Vec<Object>,
         meshes: Vec<Rc<Mesh>>,
         materials: Vec<Rc<Material>>,
-        shader_sets: Vec<Rc<ShaderSet>>,
+        mut shader_sets: Vec<Rc<ShaderSet>>,
     ) -> Self {
         // TODO check all meshes and materials used in lines and objects are given in the dedicated array
         // or even better, create the dedicated arrays by collecting them from objs and lines
-        for object in objects.iter_mut() {
-            if object.shader_set.topology.get().is_none() {
-                object
-                    .shader_set
-                    .topology
-                    .set(vk::PrimitiveTopology::TRIANGLE_LIST)
-                    .unwrap()
-            }
-        }
-        for line in lines.iter_mut() {
-            if line.shader_set.topology.get().is_none() {
-                line.shader_set
-                    .topology
-                    .set(vk::PrimitiveTopology::LINE_LIST)
-                    .unwrap();
-            }
-        }
-        let mut used_shader_sets = Vec::new();
-        for (i, shader_set) in shader_sets.into_iter().enumerate() {
-            if shader_set.topology.get().is_some() {
-                used_shader_sets.push(shader_set);
-            } else {
-                println!("Shader set {i} not used");
-            }
-        }
-        for (i, shader_set) in used_shader_sets.iter().enumerate() {
+        for (i, shader_set) in shader_sets.iter_mut().enumerate() {
             shader_set.index.set(i).unwrap();
         }
         Self {
@@ -339,7 +323,7 @@ impl Scene {
             objects,
             meshes,
             materials,
-            shader_sets: used_shader_sets,
+            shader_sets,
         }
     }
 
@@ -366,7 +350,6 @@ impl Scene {
         }
         let mut result = HashMap::new();
         for shader_set in self.shader_sets.iter() {
-            let topology = shader_set.topology.get().unwrap();
             unsafe {
                 let descriptor_sets = engine
                     .device
@@ -381,12 +364,19 @@ impl Scene {
                     &shader_set.fragment_descriptors,
                 );
                 let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo {
-                    topology: *topology,
+                    topology: shader_set.topology,
                     ..Default::default()
                 };
+                let mut shader_stage_create_infos = vec![vk::PipelineShaderStageCreateInfo {
+                    s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
+                    module: fragment_shader.module,
+                    p_name: SHADER_ENTRY_NAME.as_ptr(),
+                    stage: vk::ShaderStageFlags::FRAGMENT,
+                    ..Default::default()
+                }];
                 let rasterization_info;
                 let (vertex_shader, vertex_inputs);
-                match *topology {
+                match shader_set.topology {
                     vk::PrimitiveTopology::LINE_LIST => {
                         (vertex_shader, vertex_inputs) = VertexShader::new(
                             engine,
@@ -416,28 +406,48 @@ impl Scene {
                             front_face: vk::FrontFace::COUNTER_CLOCKWISE,
                             line_width: 2.0,
                             polygon_mode: vk::PolygonMode::FILL,
+                            cull_mode: vk::CullModeFlags::FRONT,
                             ..Default::default()
-                        }
+                        };
+                    }
+                    vk::PrimitiveTopology::POINT_LIST => {
+                        (vertex_shader, vertex_inputs) = VertexShader::new(
+                            engine,
+                            &shader_set.vertex_spv.borrow(),
+                            &descriptor_sets[0],
+                            &shader_set.vertex_descriptors,
+                            DataOrganization::ObjectMajor,
+                            1,
+                        );
+                        let mut spv_data =
+                            Cursor::new(include_bytes!("../../target/voxel_geom.spv"));
+                        let geometry_spv = util::read_spv(&mut spv_data).unwrap();
+                        let geometry_shader = GeometryShader::new(engine, geometry_spv.as_slice());
+                        rasterization_info = vk::PipelineRasterizationStateCreateInfo {
+                            front_face: vk::FrontFace::COUNTER_CLOCKWISE,
+                            line_width: 2.0,
+                            polygon_mode: vk::PolygonMode::FILL,
+                            cull_mode: vk::CullModeFlags::FRONT,
+                            ..Default::default()
+                        };
+                        shader_stage_create_infos.push(vk::PipelineShaderStageCreateInfo {
+                            s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
+                            module: geometry_shader.module,
+                            p_name: SHADER_ENTRY_NAME.as_ptr(),
+                            stage: vk::ShaderStageFlags::GEOMETRY,
+                            ..Default::default()
+                        })
                     }
                     _ => unimplemented!(),
                 };
 
-                let shader_stage_create_infos = vec![
-                    vk::PipelineShaderStageCreateInfo {
-                        s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
-                        module: vertex_shader.module,
-                        p_name: SHADER_ENTRY_NAME.as_ptr(),
-                        stage: vk::ShaderStageFlags::VERTEX,
-                        ..Default::default()
-                    },
-                    vk::PipelineShaderStageCreateInfo {
-                        s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
-                        module: fragment_shader.module,
-                        p_name: SHADER_ENTRY_NAME.as_ptr(),
-                        stage: vk::ShaderStageFlags::FRAGMENT,
-                        ..Default::default()
-                    },
-                ];
+                shader_stage_create_infos.push(vk::PipelineShaderStageCreateInfo {
+                    s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
+                    module: vertex_shader.module,
+                    p_name: SHADER_ENTRY_NAME.as_ptr(),
+                    stage: vk::ShaderStageFlags::VERTEX,
+                    ..Default::default()
+                });
                 shader_set.vertex_spv.borrow_mut().clear();
                 shader_set.fragment_spv.borrow_mut().clear();
                 let shaders: Vec<Box<dyn Shader>> =

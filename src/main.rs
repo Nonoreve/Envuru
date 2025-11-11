@@ -1,11 +1,11 @@
 #![allow(unused)]
-use std::rc::Rc;
 use cgmath::Rotation3;
+use std::rc::Rc;
 use winit::{event, keyboard};
 
 use engine::scene::Vertex;
 
-use crate::engine::ShaderInterface;
+use crate::engine::{MeshTopology, ShaderInterface};
 use crate::engine::controller::{Controller, KeyBind, MouseOrKey};
 use crate::engine::pipeline::Pipelines;
 use crate::engine::scene::{Camera, Line, Material, Mesh, Object, Scene, ShaderSet};
@@ -124,7 +124,7 @@ fn main() {
         cgmath::point3(0.0, 1.0, -2.0),
         cgmath::vec3(0.0, 0.0, 0.0),
         cgmath::PerspectiveFov {
-            fovy: cgmath::Rad::from(cgmath::Deg(120.0)),
+            fovy: cgmath::Rad::from(cgmath::Deg(100.0)),
             aspect: 1.0,
             near: 0.1,
             far,
@@ -175,6 +175,13 @@ fn main() {
         rectangle_vertices2.into(),
         rectangle_indices.into(),
     ));
+    let point_mesh = Rc::new(Mesh::new(
+        vec![Vertex {
+            pos: cgmath::vec4(0.0, 0.0, 0.0, 1.0),
+            uv: cgmath::vec2(0.0, 0.0),
+        }],
+        vec![0],
+    ));
     let charlie = Rc::new(Material::new(vec![
         image::load_from_memory(include_bytes!("../resources/textures/charlie.jpg")).unwrap(),
     ]));
@@ -186,12 +193,21 @@ fn main() {
         vec![ShaderInterface::UniformBuffer],
         include_bytes!("../target/object_frag.spv"),
         vec![ShaderInterface::CombinedImageSampler],
+        MeshTopology::Triangles
+    ));
+    let mut voxel_shader_set = Rc::new(ShaderSet::new(
+        include_bytes!("../target/voxel_vert.spv"),
+        vec![ShaderInterface::UniformBuffer],
+        include_bytes!("../target/voxel_frag.spv"),
+        vec![ShaderInterface::CombinedImageSampler],
+        MeshTopology::Points
     ));
     let line_shader_set = Rc::new(ShaderSet::new(
         include_bytes!("../target/line_vert.spv"),
         vec![ShaderInterface::UniformBuffer],
         include_bytes!("../target/line_frag.spv"),
         Vec::default(),
+        MeshTopology::Lines
     ));
     let demo_model = cgmath::Decomposed {
         scale: 1.0,
@@ -207,7 +223,7 @@ fn main() {
     let demo_model2 = cgmath::Decomposed {
         scale: 1.0,
         rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(0.1)),
-        disp: cgmath::vec3(1.0, 0.0, 0.0),
+        disp: cgmath::vec3(1.0, 0.0, 0.10),
     };
     let demo2 = Object {
         mesh: Rc::clone(&rectangle_mesh2),
@@ -218,13 +234,24 @@ fn main() {
     let demo_model3 = cgmath::Decomposed {
         scale: 1.0,
         rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(45.0)),
-        disp: cgmath::vec3(0.0, 1.0, 0.0),
+        disp: cgmath::vec3(0.0, 1.0, 0.20),
     };
     let demo3 = Object {
         mesh: Rc::clone(&rectangle_mesh),
         model: demo_model3,
         material: Rc::clone(&potoo),
         shader_set: Rc::clone(&object_shader_set),
+    };
+    let demo_model4 = cgmath::Decomposed {
+        scale: 1.0,
+        rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(0.0)),
+        disp: cgmath::vec3(0.0, 0.0, 1.0),
+    };
+    let demo4 = Object {
+        mesh: Rc::clone(&point_mesh),
+        model: demo_model4,
+        material: Rc::clone(&potoo),
+        shader_set: Rc::clone(&voxel_shader_set),
     };
     let line_vertices = [
         Vertex {
@@ -240,25 +267,25 @@ fn main() {
     let line_mesh = Rc::new(Mesh::new(line_vertices.into(), line_indices.into()));
     let mut lines = Vec::new();
     let scale = 100.0;
-    for i in 0..20 {
-        lines.push(Line {
-            mesh: Rc::clone(&line_mesh),
-            model: cgmath::Decomposed {
-                scale,
-                rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(0.01)),
-                disp: cgmath::vec3(0.0, -scale / 2.0, (-i as f32) * 2.0),
-            },
-            width: 4.0,
-            shader_set: Rc::clone(&line_shader_set),
-        })
-    }
+    // for i in 0..20 {
+    //     lines.push(Line {
+    //         mesh: Rc::clone(&line_mesh),
+    //         model: cgmath::Decomposed {
+    //             scale,
+    //             rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(0.01)),
+    //             disp: cgmath::vec3(0.0, -scale / 2.0, (-i as f32) * 2.0),
+    //         },
+    //         width: 4.0,
+    //         shader_set: Rc::clone(&line_shader_set),
+    //     })
+    // }
     let start_scene = Scene::new(
         camera,
         lines,
-        vec![demo, demo2, demo3],
-        vec![rectangle_mesh, rectangle_mesh2, line_mesh],
+        vec![demo, demo2, demo3, demo4],
+        vec![rectangle_mesh, rectangle_mesh2, point_mesh], //, line_mesh],
         vec![charlie, potoo],
-        vec![object_shader_set, line_shader_set],
+        vec![object_shader_set, voxel_shader_set], //, line_shader_set],
     );
     let scene_handle = engine_builder.register_scene(start_scene);
     engine_builder.start(scene_handle);
