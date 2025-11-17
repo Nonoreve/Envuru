@@ -167,9 +167,10 @@ impl FragmentShader {
     pub fn new(
         engine: &Engine,
         spv_data: &[u32],
-        materials: &[Rc<Material>],
+        materials: &[&Rc<Material>],
         descriptor_sets: &[vk::DescriptorSet],
         descriptor_types: &[vk::DescriptorType],
+        users: usize
     ) -> Self {
         let sampler_info = vk::SamplerCreateInfo {
             flags: Default::default(),
@@ -196,7 +197,7 @@ impl FragmentShader {
             if descriptor_types.contains(&vk::DescriptorType::COMBINED_IMAGE_SAMPLER) {
                 samplers = std::iter::repeat_n(
                     engine.device.create_sampler(&sampler_info, None).unwrap(),
-                    materials.len(),
+                    users
                 )
                 .collect();
                 let image_infos: Vec<vk::DescriptorImageInfo> = materials
@@ -204,12 +205,13 @@ impl FragmentShader {
                     .enumerate()
                     .map(|(i, material)| material.get_descriptor_image_info(samplers[i], 0))
                     .collect();
+
                 for descriptor_set in descriptor_sets.iter() {
                     let write_desc_sets = [vk::WriteDescriptorSet {
                         dst_set: *descriptor_set,
                         dst_binding: 1,
                         dst_array_element: 0,
-                        descriptor_count: materials.len() as u32,
+                        descriptor_count: users as u32,
                         descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
                         p_image_info: image_infos.as_ptr(),
                         ..Default::default()

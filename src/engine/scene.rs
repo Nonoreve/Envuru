@@ -1,6 +1,6 @@
 #![allow(clippy::mutable_key_type)]
 use crate::engine::shader::Shader;
-use std::cell::{OnceCell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::HashMap;
 use std::f32::consts::PI;
 use std::ffi::CStr;
@@ -131,7 +131,7 @@ impl Mesh {
 pub struct Material {
     textures: RefCell<Vec<Texture>>,
     images: Vec<image::DynamicImage>,
-    pub sampler_index: RefCell<usize>,
+    pub global_index: RefCell<u32>,
 }
 
 impl Material {
@@ -139,18 +139,17 @@ impl Material {
         Self {
             textures: RefCell::new(Vec::new()),
             images,
-            sampler_index: RefCell::new(0),
+            global_index: RefCell::new(0),
         }
     }
 
-    pub fn load_textures(&self, engine: &Engine, sampler_index: usize) {
+    pub fn load_textures(&self, engine: &Engine) {
         for image in self.images.iter() {
             let image = image.to_rgba8();
             let texture = Texture::new(engine, &image);
             drop(image);
             self.textures.borrow_mut().push(texture)
         }
-        self.sampler_index.replace(sampler_index);
     }
 
     pub fn get_descriptor_image_info(
@@ -193,15 +192,17 @@ pub struct Line {
     pub shader_set: Rc<ShaderSet>,
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub struct ShaderSet {
     vertex_spv: RefCell<Vec<u32>>,
     fragment_spv: RefCell<Vec<u32>>,
-    pub topology: vk::PrimitiveTopology,
+    pub topology: vk::PrimitiveTopology, // TODO remove pub
     index: OnceCell<usize>,
+    users: Cell<usize>,
     vertex_descriptors: Vec<vk::DescriptorType>,
     fragment_descriptors: Vec<vk::DescriptorType>,
     dynamic_offset_size: usize,
+    sampler_indices: OnceCell<HashMap<u32, u32>>,
 }
 
 impl ShaderSet {
@@ -242,9 +243,11 @@ impl ShaderSet {
             fragment_spv,
             topology: vk_topology,
             index: OnceCell::new(),
+            users: Cell::new(0),
             vertex_descriptors,
             fragment_descriptors,
             dynamic_offset_size,
+            sampler_indices: OnceCell::new(),
         }
     }
 
@@ -252,6 +255,7 @@ impl ShaderSet {
         &self,
         engine: &Engine,
         fragment_descriptors_count: u32,
+        material_indices: &[u32],
     ) -> vk::DescriptorSetLayout {
         let mut desc_layout_bindings = Vec::new();
         for (i, vertex_descriptor) in self.vertex_descriptors.iter().enumerate() {
@@ -274,6 +278,11 @@ impl ShaderSet {
         }
         let descriptor_info =
             vk::DescriptorSetLayoutCreateInfo::default().bindings(&desc_layout_bindings);
+        let mut sampler_indices = HashMap::new();
+        for (i, material_index) in material_indices.iter().enumerate() {
+            sampler_indices.insert(*material_index, i as u32);
+        }
+        self.sampler_indices.set(sampler_indices).unwrap();
         unsafe {
             engine
                 .device
@@ -284,6 +293,18 @@ impl ShaderSet {
 
     pub fn get_dynamic_offset(&self, index: usize) -> u32 {
         (self.dynamic_offset_size * index) as u32
+    }
+
+    pub fn get_sampler_index(&self, index: u32) -> &u32 {
+        self.sampler_indices
+            .get()
+            .unwrap()
+            .get(&index)
+            .unwrap()
+    }
+
+    pub fn inc_users(&self) {
+        self.users.update(|x| x + 1);
     }
 }
 
@@ -306,14 +327,20 @@ pub struct Scene {
 impl Scene {
     pub fn new(
         camera: Camera,
-        lines: Vec<Line>,
-        objects: Vec<Object>,
+        mut lines: Vec<Line>,
+        mut objects: Vec<Object>,
         meshes: Vec<Rc<Mesh>>,
         materials: Vec<Rc<Material>>,
         mut shader_sets: Vec<Rc<ShaderSet>>,
     ) -> Self {
         // TODO check all meshes and materials used in lines and objects are given in the dedicated array
         // or even better, create the dedicated arrays by collecting them from objs and lines
+        for object in objects.iter_mut() {
+            object.shader_set.inc_users()
+        }
+        for line in lines.iter_mut() {
+            line.shader_set.inc_users()
+        }
         for (i, shader_set) in shader_sets.iter_mut().enumerate() {
             shader_set.index.set(i).unwrap();
         }
@@ -345,23 +372,36 @@ impl Scene {
         for mesh in self.meshes.iter() {
             mesh.load_mesh(engine)
         }
-        for (i, material) in self.materials.iter().enumerate() {
-            material.load_textures(engine, i);
+        for material in &self.materials {
+            material.load_textures(engine);
         }
         let mut result = HashMap::new();
         for shader_set in self.shader_sets.iter() {
+            // println!(
+            //     "shaders set {i:?}: {st:?}",
+            //     i = shader_set.index.get().unwrap(),
+            //     st = shader_set.topology
+            // );
             unsafe {
                 let descriptor_sets = engine
                     .device
                     .allocate_descriptor_sets(desc_alloc_infos.get(shader_set).unwrap())
                     .unwrap();
 
+                let mut materials = Vec::new();
+                for object in &self.objects {
+                    if &object.shader_set == shader_set {
+                        materials.push(&object.material)
+                    }
+                }
+
                 let fragment_shader = FragmentShader::new(
                     engine,
                     &shader_set.fragment_spv.borrow(),
-                    &self.materials, // TODO only send materials used by objects with this shader set
+                    &materials,
                     &descriptor_sets,
                     &shader_set.fragment_descriptors,
+                    shader_set.users.get(),
                 );
                 let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo {
                     topology: shader_set.topology,
@@ -384,7 +424,7 @@ impl Scene {
                             &descriptor_sets[0],
                             &shader_set.vertex_descriptors,
                             DataOrganization::ObjectMajor,
-                            self.lines.len() as u64,
+                            shader_set.users.get() as u64,
                         );
                         rasterization_info = vk::PipelineRasterizationStateCreateInfo {
                             front_face: vk::FrontFace::COUNTER_CLOCKWISE,
@@ -400,7 +440,7 @@ impl Scene {
                             &descriptor_sets[0],
                             &shader_set.vertex_descriptors,
                             DataOrganization::ObjectMajor,
-                            self.objects.len() as u64,
+                            shader_set.users.get() as u64,
                         );
                         rasterization_info = vk::PipelineRasterizationStateCreateInfo {
                             front_face: vk::FrontFace::COUNTER_CLOCKWISE,
@@ -417,7 +457,7 @@ impl Scene {
                             &descriptor_sets[0],
                             &shader_set.vertex_descriptors,
                             DataOrganization::ObjectMajor,
-                            1,
+                            shader_set.users.get() as u64,
                         );
                         let mut spv_data =
                             Cursor::new(include_bytes!("../../target/voxel_geom.spv"));
@@ -473,11 +513,24 @@ impl Scene {
         engine: &Engine,
     ) -> HashMap<Rc<ShaderSet>, vk::DescriptorSetLayout> {
         let mut descriptor_set_layouts = HashMap::new();
-        let fragment_descriptors_count: u32 = self.materials.len() as u32;
-        for shader_set in self.shader_sets.iter() {
+
+        for (i, material) in self.materials.iter().enumerate() {
+            material.global_index.replace(i as u32);
+        }
+        for shader_set in &self.shader_sets {
+            let mut material_indices = Vec::new();
+            for object in &self.objects {
+                if &object.shader_set == shader_set {
+                    material_indices.push(*object.material.global_index.borrow())
+                }
+            }
             let result = descriptor_set_layouts.insert(
                 shader_set.clone(),
-                shader_set.get_descriptor_set_layout(engine, fragment_descriptors_count),
+                shader_set.get_descriptor_set_layout(
+                    engine,
+                    shader_set.users.get() as u32,
+                    &material_indices,
+                ),
             );
             if result.is_some() {
                 panic!("Duplicate entry inserted into hash")
@@ -508,6 +561,7 @@ impl Scene {
                 }
             }
         }
+
         let mut descriptor_sizes: Vec<vk::DescriptorPoolSize> = types_map.into_values().collect();
         descriptor_sizes.iter_mut().for_each(|e| {
             e.descriptor_count *= MAX_FRAMES_IN_FLIGHT;

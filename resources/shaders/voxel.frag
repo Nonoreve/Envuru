@@ -4,7 +4,7 @@
 
 layout (location = 0) in vec2 uv;
 
-layout (binding = 1) uniform sampler2D samplerColor[2];
+layout (binding = 1) uniform sampler2D samplerColor[1];
 
 layout (location = 0) out vec4 uFragColor;
 

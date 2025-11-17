@@ -179,6 +179,9 @@ fn main() {
         vec![Vertex {
             pos: cgmath::vec4(0.0, 0.0, 0.0, 1.0),
             uv: cgmath::vec2(0.0, 0.0),
+        }, Vertex {
+            pos: cgmath::vec4(0.0, 0.0, 0.0, 1.0),
+            uv: cgmath::vec2(0.0, 0.0),
         }],
         vec![0],
     ));
@@ -187,6 +190,9 @@ fn main() {
     ]));
     let potoo = Rc::new(Material::new(vec![
         image::load_from_memory(include_bytes!("../resources/textures/potoo_asks.jpg")).unwrap(),
+    ]));
+    let grass = Rc::new(Material::new(vec![
+        image::load_from_memory(include_bytes!("../resources/textures/grass.jpg")).unwrap(),
     ]));
     let object_shader_set = Rc::new(ShaderSet::new(
         include_bytes!("../target/object_vert.spv"),
@@ -250,7 +256,7 @@ fn main() {
     let demo4 = Object {
         mesh: Rc::clone(&point_mesh),
         model: demo_model4,
-        material: Rc::clone(&potoo),
+        material: Rc::clone(&grass),
         shader_set: Rc::clone(&voxel_shader_set),
     };
     let line_vertices = [
@@ -267,25 +273,25 @@ fn main() {
     let line_mesh = Rc::new(Mesh::new(line_vertices.into(), line_indices.into()));
     let mut lines = Vec::new();
     let scale = 100.0;
-    // for i in 0..20 {
-    //     lines.push(Line {
-    //         mesh: Rc::clone(&line_mesh),
-    //         model: cgmath::Decomposed {
-    //             scale,
-    //             rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(0.01)),
-    //             disp: cgmath::vec3(0.0, -scale / 2.0, (-i as f32) * 2.0),
-    //         },
-    //         width: 4.0,
-    //         shader_set: Rc::clone(&line_shader_set),
-    //     })
-    // }
+    for i in 0..20 {
+        lines.push(Line {
+            mesh: Rc::clone(&line_mesh),
+            model: cgmath::Decomposed {
+                scale,
+                rot: cgmath::Quaternion::from_angle_z(cgmath::Deg(0.01)),
+                disp: cgmath::vec3(0.0, -scale / 2.0, (-i as f32) * 2.0),
+            },
+            width: 4.0,
+            shader_set: Rc::clone(&line_shader_set),
+        })
+    }
     let start_scene = Scene::new(
         camera,
         lines,
         vec![demo, demo2, demo3, demo4],
-        vec![rectangle_mesh, rectangle_mesh2, point_mesh], //, line_mesh],
-        vec![charlie, potoo],
-        vec![object_shader_set, voxel_shader_set], //, line_shader_set],
+        vec![rectangle_mesh, rectangle_mesh2, line_mesh, point_mesh],
+        vec![charlie, potoo, grass],
+        vec![object_shader_set, line_shader_set, voxel_shader_set],
     );
     let scene_handle = engine_builder.register_scene(start_scene);
     engine_builder.start(scene_handle);

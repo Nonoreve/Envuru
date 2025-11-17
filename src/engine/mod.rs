@@ -38,7 +38,7 @@ pub enum ShaderInterface {
 pub enum MeshTopology {
     Triangles,
     Lines,
-    Points
+    Points,
 }
 
 pub struct EngineBuilder {
@@ -564,7 +564,9 @@ impl Engine {
                         );
                         device.cmd_set_viewport(draw_command_buffer, 0, &viewports);
                         device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
-                        let sampler_index = *object.material.sampler_index.borrow() as u32;
+                        let sampler_index = object
+                            .shader_set
+                            .get_sampler_index(*object.material.global_index.borrow() as u32);
                         let sampler_bytes = sampler_index.to_le_bytes();
 
                         device.cmd_push_constants(
