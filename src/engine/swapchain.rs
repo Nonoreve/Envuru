@@ -1,7 +1,8 @@
-use crate::engine::Engine;
 use ash::khr::{surface, swapchain};
 use ash::vk;
 use winit::dpi;
+
+use crate::engine::Engine;
 
 pub struct SurfaceData {
     pub surface_capabilities: vk::SurfaceCapabilitiesKHR,

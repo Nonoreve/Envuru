@@ -1,14 +1,17 @@
 #![allow(unused)]
-use cgmath::Rotation3;
+
 use std::rc::Rc;
+
+use cgmath::Rotation3;
 use winit::{event, keyboard};
 
+use engine::api_resources::{Camera, Line, Material, Mesh, Object};
 use engine::scene::Vertex;
 
-use crate::engine::{MeshTopology, ShaderInterface};
 use crate::engine::controller::{Controller, KeyBind, MouseOrKey};
 use crate::engine::pipeline::Pipelines;
-use crate::engine::scene::{Camera, Line, Material, Mesh, Object, Scene, ShaderSet};
+use crate::engine::scene::{Scene, ShaderSet};
+use crate::engine::{MeshTopology, ShaderInterface};
 
 mod engine;
 
@@ -176,13 +179,16 @@ fn main() {
         rectangle_indices.into(),
     ));
     let point_mesh = Rc::new(Mesh::new(
-        vec![Vertex {
-            pos: cgmath::vec4(0.0, 0.0, 0.0, 1.0),
-            uv: cgmath::vec2(0.0, 0.0),
-        }, Vertex {
-            pos: cgmath::vec4(0.0, 0.0, 0.0, 1.0),
-            uv: cgmath::vec2(0.0, 0.0),
-        }],
+        vec![
+            Vertex {
+                pos: cgmath::vec4(0.0, 0.0, 0.0, 1.0),
+                uv: cgmath::vec2(0.0, 0.0),
+            },
+            Vertex {
+                pos: cgmath::vec4(0.0, 0.0, 0.0, 1.0),
+                uv: cgmath::vec2(0.0, 0.0),
+            },
+        ],
         vec![0],
     ));
     let charlie = Rc::new(Material::new(vec![
@@ -199,21 +205,21 @@ fn main() {
         vec![ShaderInterface::UniformBuffer],
         include_bytes!("../target/object_frag.spv"),
         vec![ShaderInterface::CombinedImageSampler],
-        MeshTopology::Triangles
+        MeshTopology::Triangles,
     ));
     let mut voxel_shader_set = Rc::new(ShaderSet::new(
         include_bytes!("../target/voxel_vert.spv"),
         vec![ShaderInterface::UniformBuffer],
         include_bytes!("../target/voxel_frag.spv"),
         vec![ShaderInterface::CombinedImageSampler],
-        MeshTopology::Points
+        MeshTopology::Points,
     ));
     let line_shader_set = Rc::new(ShaderSet::new(
         include_bytes!("../target/line_vert.spv"),
         vec![ShaderInterface::UniformBuffer],
         include_bytes!("../target/line_frag.spv"),
         Vec::default(),
-        MeshTopology::Lines
+        MeshTopology::Lines,
     ));
     let demo_model = cgmath::Decomposed {
         scale: 1.0,

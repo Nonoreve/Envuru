@@ -1,5 +1,5 @@
 #![allow(clippy::mutable_key_type)]
-use crate::engine::swapchain::SurfaceData;
+
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::{borrow, ffi, mem, process, sync};
@@ -14,8 +14,10 @@ use crate::engine::controller::Controller;
 use crate::engine::memory::DepthImage;
 use crate::engine::pipeline::Pipelines;
 use crate::engine::scene::{MvpUbo, Scene, ShaderSet};
+use crate::engine::swapchain::SurfaceData;
 use crate::engine::swapchain::Swapchain;
 
+pub mod api_resources;
 pub mod controller;
 mod memory;
 pub mod pipeline;
@@ -507,7 +509,7 @@ impl Engine {
 
             let mut mvps_per_shaderset: HashMap<Rc<ShaderSet>, Vec<MvpUbo>> = HashMap::new();
 
-            for (i, object) in scene.objects.iter().enumerate() {
+            for object in &scene.objects {
                 let mvp = MvpUbo {
                     model: cgmath::Matrix4::from(object.model),
                     view: scene.camera.view_matrix(),
@@ -519,7 +521,7 @@ impl Engine {
                     mvps_per_shaderset.insert(object.shader_set.clone(), vec![mvp]);
                 }
             }
-            for line in scene.lines.iter() {
+            for line in &scene.lines {
                 let mvp = MvpUbo {
                     model: cgmath::Matrix4::from(line.model),
                     view: scene.camera.view_matrix(),
@@ -566,7 +568,7 @@ impl Engine {
                         device.cmd_set_scissor(draw_command_buffer, 0, &scissors);
                         let sampler_index = object
                             .shader_set
-                            .get_sampler_index(*object.material.global_index.borrow() as u32);
+                            .get_sampler_index(*object.material.global_index.borrow());
                         let sampler_bytes = sampler_index.to_le_bytes();
 
                         device.cmd_push_constants(

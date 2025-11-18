@@ -1,11 +1,13 @@
-use ash::vk;
 use std::mem;
 use std::mem::ManuallyDrop;
 use std::rc::Rc;
 
+use ash::vk;
+
 use crate::engine::Engine;
+use crate::engine::api_resources::Material;
 use crate::engine::memory::{DataOrganization, UniformBuffer};
-use crate::engine::scene::{Material, MvpUbo, Vertex};
+use crate::engine::scene::{MvpUbo, Vertex};
 
 #[macro_export]
 macro_rules! offset_of {
@@ -122,7 +124,7 @@ impl Shader for VertexShader {
         }
     }
 
-    fn get_uniform_data(&self, index: usize) -> Option<&UniformBuffer>{
+    fn get_uniform_data(&self, index: usize) -> Option<&UniformBuffer> {
         Some(&self.uniform_mvp_buffers[index])
     }
 }
@@ -133,10 +135,7 @@ pub struct GeometryShader {
 }
 
 impl GeometryShader {
-    pub fn new(
-        engine: &Engine,
-        spv_data: &[u32],
-    ) -> GeometryShader {
+    pub fn new(engine: &Engine, spv_data: &[u32]) -> GeometryShader {
         let geometry_shader_info = vk::ShaderModuleCreateInfo::default().code(spv_data);
 
         unsafe {
@@ -144,9 +143,7 @@ impl GeometryShader {
                 .device
                 .create_shader_module(&geometry_shader_info, None)
                 .unwrap();
-            Self {
-                module,
-            }
+            Self { module }
         }
     }
 
@@ -170,7 +167,7 @@ impl FragmentShader {
         materials: &[&Rc<Material>],
         descriptor_sets: &[vk::DescriptorSet],
         descriptor_types: &[vk::DescriptorType],
-        users: usize
+        users: usize,
     ) -> Self {
         let sampler_info = vk::SamplerCreateInfo {
             flags: Default::default(),
@@ -197,7 +194,7 @@ impl FragmentShader {
             if descriptor_types.contains(&vk::DescriptorType::COMBINED_IMAGE_SAMPLER) {
                 samplers = std::iter::repeat_n(
                     engine.device.create_sampler(&sampler_info, None).unwrap(),
-                    users
+                    users,
                 )
                 .collect();
                 let image_infos: Vec<vk::DescriptorImageInfo> = materials
@@ -245,7 +242,7 @@ impl Shader for FragmentShader {
         }
     }
 
-    fn get_uniform_data(&self, _index: usize) -> Option<&UniformBuffer>{
+    fn get_uniform_data(&self, _index: usize) -> Option<&UniformBuffer> {
         None
     }
 }
