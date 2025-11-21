@@ -32,10 +32,20 @@ type UpdateFn = for<'a, 'b, 'c, 'd> fn(
     &'d cgmath::Vector2<f64>,
 );
 
+#[derive(Debug)]
+
 pub enum ShaderInterface {
     UniformBuffer,
     CombinedImageSampler,
 }
+
+#[derive(Debug, Eq, PartialEq, Hash, Clone)]
+pub enum ShaderType {
+    Vertex,
+    Geometry,
+    Fragment
+}
+
 
 pub enum MeshTopology {
     Triangles,

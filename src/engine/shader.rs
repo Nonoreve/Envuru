@@ -146,11 +146,18 @@ impl GeometryShader {
             Self { module }
         }
     }
+}
 
-    pub fn delete(&self, engine: &Engine) {
+impl Shader for GeometryShader {
+
+    fn delete(&mut self, engine: &Engine) {
         unsafe {
             engine.device.destroy_shader_module(self.module, None);
         }
+    }
+
+    fn get_uniform_data(&self, _index: usize) -> Option<&UniformBuffer> {
+        None
     }
 }
 

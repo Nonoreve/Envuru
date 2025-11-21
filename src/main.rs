@@ -11,7 +11,7 @@ use engine::scene::Vertex;
 use crate::engine::controller::{Controller, KeyBind, MouseOrKey};
 use crate::engine::pipeline::Pipelines;
 use crate::engine::scene::{Scene, ShaderSet};
-use crate::engine::{MeshTopology, ShaderInterface};
+use crate::engine::{MeshTopology, ShaderInterface, ShaderType};
 
 mod engine;
 
@@ -201,24 +201,53 @@ fn main() {
         image::load_from_memory(include_bytes!("../resources/textures/grass.jpg")).unwrap(),
     ]));
     let object_shader_set = Rc::new(ShaderSet::new(
-        include_bytes!("../target/object_vert.spv"),
-        vec![ShaderInterface::UniformBuffer],
-        include_bytes!("../target/object_frag.spv"),
-        vec![ShaderInterface::CombinedImageSampler],
+        &[
+            (
+                ShaderType::Vertex,
+                include_bytes!("../target/object_vert.spv"),
+                vec![ShaderInterface::UniformBuffer],
+            ),
+            (
+                ShaderType::Fragment,
+                include_bytes!("../target/object_frag.spv"),
+                vec![ShaderInterface::CombinedImageSampler],
+            ),
+        ],
         MeshTopology::Triangles,
     ));
     let mut voxel_shader_set = Rc::new(ShaderSet::new(
-        include_bytes!("../target/voxel_vert.spv"),
-        vec![ShaderInterface::UniformBuffer],
-        include_bytes!("../target/voxel_frag.spv"),
-        vec![ShaderInterface::CombinedImageSampler],
+        &[
+            (
+                ShaderType::Vertex,
+                include_bytes!("../target/voxel_vert.spv"),
+                vec![ShaderInterface::UniformBuffer],
+            ),
+            (
+                ShaderType::Geometry,
+                include_bytes!("../target/voxel_geom.spv"),
+                Vec::default(),
+            ),
+            (
+                ShaderType::Fragment,
+                include_bytes!("../target/voxel_frag.spv"),
+                vec![ShaderInterface::CombinedImageSampler],
+            ),
+        ],
         MeshTopology::Points,
     ));
     let line_shader_set = Rc::new(ShaderSet::new(
-        include_bytes!("../target/line_vert.spv"),
-        vec![ShaderInterface::UniformBuffer],
-        include_bytes!("../target/line_frag.spv"),
-        Vec::default(),
+        &[
+            (
+                ShaderType::Vertex,
+                include_bytes!("../target/line_vert.spv"),
+                vec![ShaderInterface::UniformBuffer],
+            ),
+            (
+                ShaderType::Fragment,
+                include_bytes!("../target/line_frag.spv"),
+                Vec::default(),
+            ),
+        ],
         MeshTopology::Lines,
     ));
     let demo_model = cgmath::Decomposed {
