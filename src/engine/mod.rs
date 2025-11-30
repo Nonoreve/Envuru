@@ -16,6 +16,7 @@ use crate::engine::pipeline::Pipelines;
 use crate::engine::scene::{MvpUbo, Scene, ShaderSet};
 use crate::engine::swapchain::SurfaceData;
 use crate::engine::swapchain::Swapchain;
+use crate::engine::api_resources::Mesh;
 
 pub mod api_resources;
 pub mod controller;
@@ -43,9 +44,8 @@ pub enum ShaderInterface {
 pub enum ShaderType {
     Vertex,
     Geometry,
-    Fragment
+    Fragment,
 }
-
 
 pub enum MeshTopology {
     Triangles,

@@ -7,6 +7,7 @@ use ash::{util, vk};
 use crate::engine::Engine;
 use crate::engine::scene::{MvpUbo, Scene, ShaderSet};
 use crate::engine::shader::Shader;
+use crate::engine::api_resources::Mesh;
 
 type ShaderMap = HashMap<Rc<ShaderSet>, Vec<Box<dyn Shader>>>;
 

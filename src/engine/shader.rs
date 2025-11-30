@@ -1,4 +1,3 @@
-use std::mem;
 use std::mem::ManuallyDrop;
 use std::rc::Rc;
 
@@ -7,18 +6,7 @@ use ash::vk;
 use crate::engine::Engine;
 use crate::engine::api_resources::Material;
 use crate::engine::memory::{DataOrganization, UniformBuffer};
-use crate::engine::scene::{MvpUbo, Vertex};
-
-#[macro_export]
-macro_rules! offset_of {
-    ($base:path, $field:ident) => {{
-        #[allow(unused_unsafe)]
-        unsafe {
-            let b: $base = mem::zeroed();
-            std::ptr::addr_of!(b.$field) as isize - std::ptr::addr_of!(b) as isize
-        }
-    }};
-}
+use crate::engine::scene::{MvpUbo, VertexType};
 
 pub trait Shader {
     fn delete(&mut self, engine: &Engine);
@@ -37,7 +25,7 @@ pub struct VertexShader {
 }
 
 impl VertexShader {
-    pub fn new(
+    pub fn new<T: VertexType>(
         engine: &Engine,
         spv_data: &[u32],
         descriptor_set: &vk::DescriptorSet,
@@ -48,23 +36,21 @@ impl VertexShader {
         let vertex_shader_info = vk::ShaderModuleCreateInfo::default().code(spv_data);
         let input_binding_descriptions = vec![vk::VertexInputBindingDescription {
             binding: 0,
-            stride: size_of::<Vertex>() as u32,
+            stride: size_of::<T>() as u32,
             input_rate: vk::VertexInputRate::VERTEX,
         }];
-        let input_attribute_descriptions = vec![
-            vk::VertexInputAttributeDescription {
-                location: 0,
-                binding: 0,
-                format: vk::Format::R32G32B32A32_SFLOAT,
-                offset: offset_of!(Vertex, pos) as u32,
-            },
-            vk::VertexInputAttributeDescription {
-                location: 1,
-                binding: 0,
-                format: vk::Format::R32G32_SFLOAT,
-                offset: offset_of!(Vertex, uv) as u32,
-            },
-        ];
+        let input_attribute_descriptions = T::get_attributes()
+            .into_iter()
+            .enumerate()
+            .map(
+                |(i, (format, offset))| vk::VertexInputAttributeDescription {
+                    location: i as u32,
+                    binding: 0,
+                    format,
+                    offset,
+                },
+            )
+            .collect();
         let mut uniform_mvp_buffers = Vec::new();
 
         unsafe {
@@ -149,7 +135,6 @@ impl GeometryShader {
 }
 
 impl Shader for GeometryShader {
-
     fn delete(&mut self, engine: &Engine) {
         unsafe {
             engine.device.destroy_shader_module(self.module, None);

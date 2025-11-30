@@ -1,5 +1,6 @@
 #![allow(clippy::mutable_key_type)]
 
+use crate::engine::api_resources::ObjectMesh;
 use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::HashMap;
 use std::ffi::CStr;
@@ -18,12 +19,23 @@ use crate::engine::{Engine, MAX_FRAMES_IN_FLIGHT, MeshTopology, ShaderInterface,
 
 const SHADER_ENTRY_NAME: &CStr = c"main";
 
+#[macro_export]
+macro_rules! offset_of {
+    ($base:path, $field:ident) => {{
+        #[allow(unused_unsafe)]
+        unsafe {
+            let b: $base = std::mem::zeroed();
+            std::ptr::addr_of!(b.$field) as isize - std::ptr::addr_of!(b) as isize
+        }
+    }};
+}
+
 #[derive(Eq, PartialEq, Debug)]
 pub struct ShaderSet {
     vertex_spv: RefCell<Vec<u32>>,
     geometry_spv: Option<RefCell<Vec<u32>>>,
     fragment_spv: RefCell<Vec<u32>>,
-    pub topology: vk::PrimitiveTopology, // TODO remove pub
+    topology: vk::PrimitiveTopology,
     index: OnceCell<usize>,
     users: Cell<usize>,
     vertex_descriptors: Vec<vk::DescriptorType>,
@@ -147,7 +159,7 @@ pub struct Scene {
     pub camera: Camera,
     pub lines: Vec<Line>,
     pub objects: Vec<Object>,
-    pub meshes: Vec<Rc<Mesh>>,
+    pub meshes: Vec<Rc<ObjectMesh>>,
     pub materials: Vec<Rc<Material>>,
     shader_sets: Vec<Rc<ShaderSet>>,
 }
@@ -157,7 +169,7 @@ impl Scene {
         camera: Camera,
         mut lines: Vec<Line>,
         mut objects: Vec<Object>,
-        meshes: Vec<Rc<Mesh>>,
+        meshes: Vec<Rc<ObjectMesh>>,
         materials: Vec<Rc<Material>>,
         mut shader_sets: Vec<Rc<ShaderSet>>,
     ) -> Self {
@@ -248,7 +260,7 @@ impl Scene {
                 let geometry_shader;
                 match shader_set.topology {
                     vk::PrimitiveTopology::LINE_LIST => {
-                        (vertex_shader, vertex_inputs) = VertexShader::new(
+                        (vertex_shader, vertex_inputs) = VertexShader::new::<Vertex>(
                             engine,
                             &shader_set.vertex_spv.borrow(),
                             &descriptor_sets[0],
@@ -265,7 +277,7 @@ impl Scene {
                         geometry_shader = None;
                     }
                     vk::PrimitiveTopology::TRIANGLE_LIST => {
-                        (vertex_shader, vertex_inputs) = VertexShader::new(
+                        (vertex_shader, vertex_inputs) = VertexShader::new::<Vertex>(
                             engine,
                             &shader_set.vertex_spv.borrow(),
                             &descriptor_sets[0],
@@ -283,7 +295,7 @@ impl Scene {
                         geometry_shader = None;
                     }
                     vk::PrimitiveTopology::POINT_LIST => {
-                        (vertex_shader, vertex_inputs) = VertexShader::new(
+                        (vertex_shader, vertex_inputs) = VertexShader::new::<Vertex>(
                             engine,
                             &shader_set.vertex_spv.borrow(),
                             &descriptor_sets[0],
@@ -422,8 +434,38 @@ pub struct MvpUbo {
     pub projection: cgmath::Matrix4<f32>,
 }
 
+pub trait VertexType {
+    fn get_attributes() -> Vec<(vk::Format, u32)>;
+}
+
 #[derive(Clone, Debug, Copy)]
 pub struct Vertex {
     pub pos: cgmath::Vector4<f32>,
     pub uv: cgmath::Vector2<f32>,
+}
+
+impl VertexType for Vertex {
+    fn get_attributes() -> Vec<(vk::Format, u32)> {
+        vec![
+            (
+                vk::Format::R32G32B32A32_SFLOAT,
+                offset_of!(Self, pos) as u32,
+            ),
+            (vk::Format::R32G32_SFLOAT, offset_of!(Self, uv) as u32),
+        ]
+    }
+}
+
+#[derive(Clone, Debug, Copy)]
+pub struct Point {
+    pub pos: cgmath::Vector4<f32>,
+}
+
+impl VertexType for Point {
+    fn get_attributes() -> Vec<(vk::Format, u32)> {
+        vec![(
+            vk::Format::R32G32B32A32_SFLOAT,
+            offset_of!(Self, pos) as u32,
+        )]
+    }
 }

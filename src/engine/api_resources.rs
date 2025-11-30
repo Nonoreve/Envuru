@@ -1,3 +1,4 @@
+use crate::engine::scene::VertexType;
 use std::cell::{OnceCell, RefCell};
 use std::f32::consts::PI;
 use std::rc::Rc;
@@ -70,15 +71,23 @@ impl Camera {
     }
 }
 
-pub struct Mesh {
+pub trait Mesh<T: VertexType>{
+    fn new(vertices: Vec<Vertex>, indices: Vec<u32>) -> Self;
+    fn load_mesh(&self, engine: &Engine);
+    fn bind_buffers(&self, engine: &Engine, current_frame: usize);
+    fn get_index_count(&self) -> u32;
+    fn delete(&self, engine: &Engine);
+}
+
+pub struct ObjectMesh {
     vertices: RefCell<Vec<Vertex>>,
     indices: RefCell<Vec<u32>>,
     vertex_buffer: OnceCell<VertexBuffer>,
     index_buffer: OnceCell<IndexBuffer>,
 }
 
-impl Mesh {
-    pub fn new(vertices: Vec<Vertex>, indices: Vec<u32>) -> Self {
+impl Mesh<Vertex> for ObjectMesh{
+    fn new(vertices: Vec<Vertex>, indices: Vec<u32>) -> Self {
         let vertices_cell = RefCell::new(vertices);
         let indices_cell = RefCell::new(indices);
         Self {
@@ -89,7 +98,18 @@ impl Mesh {
         }
     }
 
-    pub fn load_mesh(&self, engine: &Engine) {
+    // fn new_from_positions(positions: Vec<u32>) -> Self {
+    //     let vertices_cell = RefCell::new(vertices);
+    //     let indices_cell = RefCell::new(indices);
+    //     Self {
+    //         vertices: vertices_cell,
+    //         indices: indices_cell,
+    //         vertex_buffer: OnceCell::new(),
+    //         index_buffer: OnceCell::new(),
+    //     }
+    // }
+
+    fn load_mesh(&self, engine: &Engine) {
         let vertex_buffer = VertexBuffer::new(
             engine,
             &self.vertices.borrow(),
@@ -102,7 +122,7 @@ impl Mesh {
         self.indices.borrow_mut().clear();
     }
 
-    pub fn bind_buffers(&self, engine: &Engine, current_frame: usize) {
+    fn bind_buffers(&self, engine: &Engine, current_frame: usize) {
         self.vertex_buffer
             .get()
             .unwrap()
@@ -110,11 +130,11 @@ impl Mesh {
         self.index_buffer.get().unwrap().bind(engine, current_frame);
     }
 
-    pub fn get_index_count(&self) -> u32 {
+    fn get_index_count(&self) -> u32 {
         self.index_buffer.get().unwrap().index_count
     }
 
-    pub fn delete(&self, engine: &Engine) {
+    fn delete(&self, engine: &Engine) {
         self.index_buffer.get().unwrap().delete(engine);
         self.vertex_buffer.get().unwrap().delete(engine);
     }
@@ -164,7 +184,7 @@ impl Material {
 }
 
 pub struct Object {
-    pub mesh: Rc<Mesh>,
+    pub mesh: Rc<ObjectMesh>,
     pub model: cgmath::Decomposed<cgmath::Vector3<f32>, cgmath::Quaternion<f32>>,
     pub material: Rc<Material>,
     pub shader_set: Rc<ShaderSet>,
@@ -178,7 +198,7 @@ impl Object {
 }
 
 pub struct Line {
-    pub mesh: Rc<Mesh>,
+    pub mesh: Rc<ObjectMesh>,
     pub model: cgmath::Decomposed<cgmath::Vector3<f32>, cgmath::Quaternion<f32>>,
     pub width: f32,
     pub shader_set: Rc<ShaderSet>,
